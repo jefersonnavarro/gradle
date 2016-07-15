@@ -16,6 +16,7 @@
 
 package org.gradle.api.internal.artifacts.query
 
+import org.gradle.api.artifacts.component.ComponentIdentifier
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.dsl.RepositoryHandler
 import org.gradle.api.artifacts.result.ArtifactResolutionResult
@@ -25,32 +26,32 @@ import org.gradle.api.component.Component
 import org.gradle.api.internal.artifacts.GlobalDependencyResolutionRules
 import org.gradle.api.internal.artifacts.configurations.ConfigurationContainerInternal
 import org.gradle.api.internal.artifacts.ivyservice.CacheLockingManager
-import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.RepositoryChain
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.ResolveIvyFactory
+import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.ComponentResolvers
 import org.gradle.api.internal.component.ComponentTypeRegistration
 import org.gradle.api.internal.component.ComponentTypeRegistry
 import org.gradle.internal.Factory
 import org.gradle.internal.component.external.model.DefaultModuleComponentIdentifier
-import org.gradle.internal.component.model.ComponentResolveMetaData
-import org.gradle.internal.component.model.DependencyMetaData
+import org.gradle.internal.component.model.ComponentOverrideMetadata
+import org.gradle.internal.component.model.ComponentResolveMetadata
 import org.gradle.internal.resolve.resolver.ArtifactResolver
-import org.gradle.internal.resolve.resolver.DependencyToComponentResolver
+import org.gradle.internal.resolve.resolver.ComponentMetaDataResolver
 import org.gradle.internal.resolve.result.BuildableComponentResolveResult
 import spock.lang.Shared
 import spock.lang.Specification
 import spock.lang.Unroll
 
 class DefaultArtifactResolutionQueryTest extends Specification {
-    def configurationContainerInternal = Mock(ConfigurationContainerInternal)
+    def configurationContainerInternal = Stub(ConfigurationContainerInternal)
     def repositoryHandler = Stub(RepositoryHandler)
     def resolveIvyFactory = Mock(ResolveIvyFactory)
     def globalDependencyResolutionRules = Mock(GlobalDependencyResolutionRules)
     def cacheLockingManager = Mock(CacheLockingManager)
     def componentTypeRegistry = Mock(ComponentTypeRegistry)
     def artifactResolver = Mock(ArtifactResolver)
-    def repositoryChain = Mock(RepositoryChain)
-    def dependencyToComponentResolver = Mock(DependencyToComponentResolver)
-    def componentResolveMetaData = Mock(ComponentResolveMetaData)
+    def repositoryChain = Mock(ComponentResolvers)
+    def componentMetaDataResolver = Mock(ComponentMetaDataResolver)
+    def componentResolveMetaData = Mock(ComponentResolveMetadata)
 
     @Shared ComponentTypeRegistry testComponentTypeRegistry = createTestComponentTypeRegistry()
 
@@ -93,8 +94,8 @@ class DefaultArtifactResolutionQueryTest extends Specification {
         }
         1 * resolveIvyFactory.create(_, _, _) >> repositoryChain
         1 * repositoryChain.artifactResolver >> artifactResolver
-        1 * repositoryChain.dependencyResolver >> dependencyToComponentResolver
-        1 * dependencyToComponentResolver.resolve(_, _) >> { DependencyMetaData dependency, BuildableComponentResolveResult resolveResult ->
+        1 * repositoryChain.componentResolver >> componentMetaDataResolver
+        1 * componentMetaDataResolver.resolve(_, _, _) >> { ComponentIdentifier componentId, ComponentOverrideMetadata requestMetaData, BuildableComponentResolveResult resolveResult ->
             resolveResult.resolved(componentResolveMetaData)
         }
         result
@@ -139,12 +140,12 @@ class DefaultArtifactResolutionQueryTest extends Specification {
     private static class TestComponent implements Component {
     }
 
-    private static class TestArtifact implements Artifact {
+    private static interface TestArtifact extends Artifact {
     }
 
     private static class UnknownComponent implements Component {
     }
 
-    private static class UnknownArtifact implements Artifact {
+    private static interface UnknownArtifact extends Artifact {
     }
 }

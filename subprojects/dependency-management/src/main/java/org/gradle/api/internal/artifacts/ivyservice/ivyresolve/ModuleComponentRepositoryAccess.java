@@ -22,34 +22,39 @@ import org.gradle.api.internal.component.ArtifactType;
 import org.gradle.internal.resolve.result.BuildableArtifactResolveResult;
 import org.gradle.internal.resolve.result.BuildableArtifactSetResolveResult;
 import org.gradle.internal.resolve.result.BuildableModuleComponentMetaDataResolveResult;
-import org.gradle.internal.resolve.result.BuildableModuleComponentVersionSelectionResolveResult;
+import org.gradle.internal.resolve.result.BuildableModuleVersionListingResolveResult;
 
 /**
  * Provides access to a repository of components that are identified by a ModuleComponentIdentifier.
+ *
+ * The plan is to eventually sync this with
+ * {@link org.gradle.internal.resolve.resolver.DependencyToComponentIdResolver},
+ * {@link org.gradle.internal.resolve.resolver.ComponentMetaDataResolver} and
+ * {@link org.gradle.internal.resolve.resolver.ArtifactResolver}.
  */
 public interface ModuleComponentRepositoryAccess {
     /**
      * Resolves the given dependency to a list of module versions.
      */
-    void listModuleVersions(DependencyMetaData dependency, BuildableModuleComponentVersionSelectionResolveResult result);
+    void listModuleVersions(DependencyMetadata dependency, BuildableModuleVersionListingResolveResult result);
 
     /**
      * Resolves the metadata for a module component.
      */
-    void resolveComponentMetaData(DependencyMetaData dependency, ModuleComponentIdentifier moduleComponentIdentifier, BuildableModuleComponentMetaDataResolveResult result);
+    void resolveComponentMetaData(ModuleComponentIdentifier moduleComponentIdentifier, ComponentOverrideMetadata requestMetaData, BuildableModuleComponentMetaDataResolveResult result);
 
     /**
      * Resolves a set of artifacts belonging to the given component, based on the supplied usage. Any failures are packaged up in the result.
      */
-    void resolveModuleArtifacts(ComponentResolveMetaData component, ComponentUsage componentUsage, BuildableArtifactSetResolveResult result);
+    void resolveModuleArtifacts(ComponentResolveMetadata component, ComponentUsage componentUsage, BuildableArtifactSetResolveResult result);
 
     /**
      * Resolves a set of artifacts belonging to the given component, with the type specified. Any failures are packaged up in the result.
      */
-    void resolveModuleArtifacts(ComponentResolveMetaData component, ArtifactType artifactType, BuildableArtifactSetResolveResult result);
+    void resolveModuleArtifacts(ComponentResolveMetadata component, ArtifactType artifactType, BuildableArtifactSetResolveResult result);
 
     /**
      * Resolves the given artifact. Any failures are packaged up in the result.
      */
-    void resolveArtifact(ComponentArtifactMetaData artifact, ModuleSource moduleSource, BuildableArtifactResolveResult result);
+    void resolveArtifact(ComponentArtifactMetadata artifact, ModuleSource moduleSource, BuildableArtifactResolveResult result);
 }

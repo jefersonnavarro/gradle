@@ -18,7 +18,7 @@ package org.gradle.model.internal.registry;
 
 import net.jcip.annotations.ThreadSafe;
 import org.gradle.api.Transformer;
-import org.gradle.model.internal.core.ModelBinding;
+import org.gradle.model.internal.core.ModelNode;
 import org.gradle.model.internal.core.ModelPath;
 import org.gradle.model.internal.core.ModelReference;
 import org.gradle.model.internal.report.unbound.UnboundRule;
@@ -30,37 +30,31 @@ import java.util.Collection;
 import java.util.List;
 
 @ThreadSafe
-public class UnboundRulesProcessor {
+class UnboundRulesProcessor {
 
-    private final Iterable<? extends RuleBinder<?>> binders;
+    private final Iterable<? extends RuleBinder> binders;
     private final Transformer<? extends Collection<? extends ModelPath>, ? super ModelPath> suggestionsProvider;
 
-    public UnboundRulesProcessor(Iterable<? extends RuleBinder<?>> binders, Transformer<? extends Collection<? extends ModelPath>, ? super ModelPath> suggestionsProvider) {
+    public UnboundRulesProcessor(Iterable<? extends RuleBinder> binders, Transformer<? extends Collection<? extends ModelPath>, ? super ModelPath> suggestionsProvider) {
         this.binders = binders;
         this.suggestionsProvider = suggestionsProvider;
     }
 
     public List<? extends UnboundRule> process() {
         List<UnboundRule> unboundRules = new ArrayList<UnboundRule>();
-        for (RuleBinder<?> binder : binders) {
-            UnboundRule.Builder builder = UnboundRule.descriptor(binder.getDescriptor().toString());
+        for (RuleBinder binder : binders) {
+            UnboundRule.Builder builder = UnboundRule.descriptor(String.valueOf(binder.getDescriptor()));
 
-            ModelPath scope = binder.getScope();
-
-            if (binder.getSubjectReference() != null) {
-                ModelBinding<?> binding = binder.getSubjectBinding();
-                ModelReference<?> reference = binder.getSubjectReference();
-                UnboundRuleInput.Builder inputBuilder = toInputBuilder(binding, reference, scope);
-                if (scope != ModelPath.ROOT) {
-                    inputBuilder.scope(scope.toString());
-                }
+            ModelBinding subjectBinding = binder.getSubjectBinding();
+            // Only report subject binding if target state is after node creation
+            if (subjectBinding.getPredicate().getState().compareTo(ModelNode.State.Created) > 0) {
+                UnboundRuleInput.Builder inputBuilder = toInputBuilder(subjectBinding);
                 builder.mutableInput(inputBuilder);
             }
 
-            for (int i = 0; i < binder.getInputReferences().size(); ++i) {
-                ModelBinding<?> binding = binder.getInputBindings().get(i);
-                ModelReference<?> reference = binder.getInputReferences().get(i);
-                builder.immutableInput(toInputBuilder(binding, reference, binder.getScope()));
+            for (int i = 0; i < binder.getInputBindings().size(); ++i) {
+                ModelBinding binding = binder.getInputBindings().get(i);
+                builder.immutableInput(toInputBuilder(binding));
             }
 
             unboundRules.add(builder.build());
@@ -68,17 +62,21 @@ public class UnboundRulesProcessor {
         return unboundRules;
     }
 
-    private UnboundRuleInput.Builder toInputBuilder(ModelBinding<?> binding, ModelReference<?> reference, ModelPath scope) {
+    private UnboundRuleInput.Builder toInputBuilder(ModelBinding binding) {
+        ModelReference<?> reference = binding.getPredicate().getReference();
         UnboundRuleInput.Builder builder = UnboundRuleInput.type(reference.getType());
         ModelPath path;
-        if (binding != null) {
+        if (binding.isBound()) {
             builder.bound();
-            path = binding.getPath();
+            path = binding.getNode().getPath();
         } else {
             path = reference.getPath();
             if (path != null) {
-                path = scope.descendant(path);
                 builder.suggestions(CollectionUtils.stringize(suggestionsProvider.transform(path)));
+            }
+            ModelPath scope = reference.getScope();
+            if (scope != null && !scope.equals(ModelPath.ROOT)) {
+                builder.scope(scope.toString());
             }
         }
         if (path != null) {

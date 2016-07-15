@@ -24,6 +24,8 @@ import org.gradle.nativeplatform.fixtures.AvailableToolChains
 import org.gradle.nativeplatform.fixtures.app.HelloWorldApp
 import org.gradle.nativeplatform.fixtures.app.MixedLanguageHelloWorldApp
 
+import static org.gradle.util.Matchers.containsText
+
 class AssemblyLanguageIntegrationTest extends AbstractNativeLanguageIntegrationTest {
 
     HelloWorldApp helloWorldApp = new AssemblerWithCHelloWorldApp(AbstractInstalledToolChainIntegrationSpec.toolChain)
@@ -50,7 +52,8 @@ pushl
         expect:
         fails "mainExecutable"
         failure.assertHasDescription("Execution failed for task ':assembleMainExecutableMainAsm'.");
-        failure.assertHasCause("Assembler failed; see the error output for details.")
+        failure.assertHasCause("A build operation failed.")
+        failure.assertThatCause(containsText("Assembler failed while compiling broken.s"))
     }
 
     def "can manually define Assembler source sets"() {
@@ -81,11 +84,10 @@ model {
         run "mainExecutable"
 
         then:
-        def mainExecutable = executable("build/binaries/mainExecutable/main")
+        def mainExecutable = executable("build/exe/main/main")
         mainExecutable.assertExists()
         mainExecutable.exec().out == helloWorldApp.englishOutput
     }
-
 
     static class AssemblerWithCHelloWorldApp extends MixedLanguageHelloWorldApp {
         AssemblerWithCHelloWorldApp(AvailableToolChains.InstalledToolChain toolChain) {

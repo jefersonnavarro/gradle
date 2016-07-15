@@ -21,15 +21,15 @@ import org.gradle.api.CircularReferenceException
 import org.gradle.api.Task
 import org.gradle.api.internal.TaskInternal
 import org.gradle.api.internal.TaskOutputsInternal
-import org.gradle.api.internal.project.DefaultProject
+import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.internal.tasks.TaskStateInternal
 import org.gradle.api.specs.Spec
 import org.gradle.api.tasks.TaskDependency
 import org.gradle.execution.TaskFailureHandler
 import org.gradle.initialization.BuildCancellationToken
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 import org.gradle.util.TextUtil
 import spock.lang.Issue
-import spock.lang.Specification
 import spock.lang.Unroll
 
 import static org.gradle.util.TestUtil.createChildProject
@@ -37,14 +37,14 @@ import static org.gradle.util.TestUtil.createRootProject
 import static org.gradle.util.TextUtil.toPlatformLineSeparators
 import static org.gradle.util.WrapUtil.toList
 
-public class DefaultTaskExecutionPlanTest extends Specification {
+public class DefaultTaskExecutionPlanTest extends AbstractProjectBuilderSpec {
 
     DefaultTaskExecutionPlan executionPlan
-    DefaultProject root;
+    ProjectInternal root;
     def cancellationHandler = Mock(BuildCancellationToken)
 
     def setup() {
-        root = createRootProject();
+        root = createRootProject(temporaryFolder.testDirectory);
         executionPlan = new DefaultTaskExecutionPlan(cancellationHandler)
     }
 

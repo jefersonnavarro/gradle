@@ -15,50 +15,65 @@
  */
 package org.gradle.api.internal.jvm;
 
-import org.gradle.api.Action;
 import org.gradle.api.DomainObjectSet;
-import org.gradle.api.PolymorphicDomainObjectContainer;
-import org.gradle.api.internal.AbstractBuildableModelElement;
+import org.gradle.api.Nullable;
+import org.gradle.api.artifacts.component.LibraryBinaryIdentifier;
+import org.gradle.api.internal.AbstractBuildableComponentSpec;
 import org.gradle.api.internal.DefaultDomainObjectSet;
-import org.gradle.jvm.JvmBinaryTasks;
-import org.gradle.jvm.internal.DefaultJvmBinaryTasks;
+import org.gradle.api.internal.project.taskfactory.ITaskFactory;
+import org.gradle.api.tasks.SourceSet;
+import org.gradle.internal.reflect.Instantiator;
+import org.gradle.jvm.ClassDirectoryBinarySpec;
 import org.gradle.jvm.internal.toolchain.JavaToolChainInternal;
 import org.gradle.jvm.platform.JavaPlatform;
 import org.gradle.jvm.toolchain.JavaToolChain;
-import org.gradle.language.base.FunctionalSourceSet;
 import org.gradle.language.base.LanguageSourceSet;
-import org.gradle.platform.base.internal.BinaryBuildAbility;
-import org.gradle.platform.base.internal.BinaryNamingScheme;
-import org.gradle.platform.base.internal.DefaultBinaryBuildAbility;
+import org.gradle.model.ModelMap;
+import org.gradle.platform.base.BinarySpec;
+import org.gradle.platform.base.BinaryTasksCollection;
+import org.gradle.platform.base.ComponentSpec;
+import org.gradle.platform.base.internal.*;
 
 import java.io.File;
 
-public class DefaultClassDirectoryBinarySpec extends AbstractBuildableModelElement implements ClassDirectoryBinarySpecInternal {
+public class DefaultClassDirectoryBinarySpec extends AbstractBuildableComponentSpec implements ClassDirectoryBinarySpecInternal {
     private final DefaultDomainObjectSet<LanguageSourceSet> sourceSets = new DefaultDomainObjectSet<LanguageSourceSet>(LanguageSourceSet.class);
-    private final BinaryNamingScheme namingScheme;
-    private final String name;
+    private final SourceSet sourceSet;
     private final JavaToolChain toolChain;
     private final JavaPlatform platform;
-    private final DefaultJvmBinaryTasks tasks = new DefaultJvmBinaryTasks(this);
-    private File classesDir;
-    private File resourcesDir;
+    private final BinaryTasksCollection tasks;
     private boolean buildable = true;
 
-    public DefaultClassDirectoryBinarySpec(String name, JavaToolChain toolChain, JavaPlatform platform) {
-        this.name = name;
+    public DefaultClassDirectoryBinarySpec(ComponentSpecIdentifier componentIdentifier, SourceSet sourceSet, JavaToolChain toolChain, JavaPlatform platform, Instantiator instantiator, ITaskFactory taskFactory) {
+        super(componentIdentifier, ClassDirectoryBinarySpec.class);
+        this.sourceSet = sourceSet;
         this.toolChain = toolChain;
         this.platform = platform;
-        this.namingScheme = new ClassDirectoryBinaryNamingScheme(removeClassesSuffix(name));
+        this.tasks = instantiator.newInstance(DefaultBinaryTasksCollection.class, this, taskFactory);
     }
 
-    private String removeClassesSuffix(String name) {
-        if (name.endsWith("Classes")) {
-            return name.substring(0, name.length() - 7);
-        }
-        return name;
+    @Override
+    public LibraryBinaryIdentifier getId() {
+        throw new UnsupportedOperationException();
     }
 
-    public JvmBinaryTasks getTasks() {
+    @Nullable
+    @Override
+    public ComponentSpec getComponent() {
+        return null;
+    }
+
+    @Override
+    public String getProjectScopedName() {
+        return getName();
+    }
+
+    @Override
+    public Class<? extends BinarySpec> getPublicType() {
+        return ClassDirectoryBinarySpec.class;
+    }
+
+    public BinaryTasksCollection getTasks() {
         return tasks;
     }
 
@@ -79,7 +94,7 @@ public class DefaultClassDirectoryBinarySpec extends AbstractBuildableModelEleme
     }
 
     public boolean isBuildable() {
-        return buildable;
+        return getBuildAbility().isBuildable();
     }
 
     public void setBuildable(boolean buildable) {
@@ -90,60 +105,62 @@ public class DefaultClassDirectoryBinarySpec extends AbstractBuildableModelEleme
         return true;
     }
 
-    public BinaryNamingScheme getNamingScheme() {
-        return namingScheme;
-    }
-
-    public String getName() {
-        return name;
-    }
-
     public File getClassesDir() {
-        return classesDir;
+        return sourceSet.getOutput().getClassesDir();
     }
 
     public void setClassesDir(File classesDir) {
-        this.classesDir = classesDir;
+        sourceSet.getOutput().setClassesDir(classesDir);
     }
 
     public File getResourcesDir() {
-        return resourcesDir;
+        return sourceSet.getOutput().getResourcesDir();
     }
 
     public void setResourcesDir(File resourcesDir) {
-        this.resourcesDir = resourcesDir;
+        sourceSet.getOutput().setResourcesDir(resourcesDir);
     }
 
-    public FunctionalSourceSet getBinarySources() {
+    @Override
+    public ModelMap<LanguageSourceSet> getSources() {
         throw new UnsupportedOperationException();
     }
 
-    public void setBinarySources(FunctionalSourceSet sources) {
+    @Override
+    public BinaryNamingScheme getNamingScheme() {
         throw new UnsupportedOperationException();
     }
 
-    public void sources(Action<? super PolymorphicDomainObjectContainer<LanguageSourceSet>> action) {
+    @Override
+    public void setNamingScheme(BinaryNamingScheme namingScheme) {
         throw new UnsupportedOperationException();
     }
 
-    public DomainObjectSet<LanguageSourceSet> getSource() {
+    @Override
+    public boolean hasCodependentSources() {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public DomainObjectSet<LanguageSourceSet> getInputs() {
         return sourceSets;
     }
 
-    public void source(Object source) {
-        throw new UnsupportedOperationException();
+    @Override
+    public void addSourceSet(LanguageSourceSet sourceSet) {
+        sourceSets.add(sourceSet);
     }
 
-    public String getDisplayName() {
-        return namingScheme.getDescription();
-    }
-
-    public String toString() {
-        return getDisplayName();
+    @Override
+    protected String getTypeName() {
+        return "Classes";
     }
 
     @Override
     public BinaryBuildAbility getBuildAbility() {
-        return new DefaultBinaryBuildAbility(((JavaToolChainInternal)getToolChain()).select(getTargetPlatform()));
+        if (!buildable) {
+            return new FixedBuildAbility(false);
+        }
+        return new ToolSearchBuildAbility(((JavaToolChainInternal) getToolChain()).select(getTargetPlatform()));
     }
 }

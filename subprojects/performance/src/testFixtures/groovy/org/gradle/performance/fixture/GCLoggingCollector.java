@@ -16,8 +16,6 @@
 
 package org.gradle.performance.fixture;
 
-import com.google.common.base.Joiner;
-import org.gradle.integtests.fixtures.executer.GradleExecuter;
 import org.gradle.performance.measure.DataAmount;
 import org.gradle.performance.measure.MeasuredOperation;
 import org.gradle.util.GFileUtils;
@@ -28,35 +26,38 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.text.DecimalFormatSymbols;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class GCLoggingCollector implements DataCollector {
     private File logFile;
-    private boolean useDaemon;
 
-    public void useDaemon() {
-        useDaemon(true);
+    @Override
+    public List<String> getAdditionalJvmOpts(File workingDir) {
+        logFile = new File(workingDir, "gc.txt");
+        return Arrays.asList(
+                "-verbosegc",
+                "-XX:+PrintGCDetails",
+                "-XX:+PrintGCDateStamps",
+                "-Xloggc:" + logFile.getAbsolutePath(),
+                "-XX:-PrintGCTimeStamps"
+        );
     }
 
-    public void useDaemon(boolean useDaemon) {
-        this.useDaemon = useDaemon;
+    @Override
+    public List<String> getAdditionalArgs(File workingDir) {
+        return Collections.emptyList();
     }
 
-    public void beforeExecute(File testProjectDir, GradleExecuter executer) {
-        logFile = new File(testProjectDir, "gc.txt");
-
-        String[] gradleOpts = new String[]{"-verbosegc", "-XX:+PrintGCDetails", "-XX:+PrintGCDateStamps", "-Xloggc:" + logFile.getAbsolutePath(), "-XX:-PrintGCTimeStamps"};
-        if (useDaemon) {
-            executer.withGradleOpts("-Dorg.gradle.jvmargs=" + Joiner.on(" ").join(gradleOpts));
-        } else {
-            executer.withGradleOpts(gradleOpts);
-        }
-    }
-
-    public void collect(File testProjectDir, MeasuredOperation operation) {
+    public void collect(BuildExperimentInvocationInfo invocationInfo, MeasuredOperation operation) {
         collect(operation, Locale.getDefault());
+        if (logFile.exists() && invocationInfo != null) {
+            LogFiles.copyLogFile(logFile, invocationInfo, "gc_", ".txt");
+        }
     }
 
     public void collect(MeasuredOperation operation, Locale locale) {

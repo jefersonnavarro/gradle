@@ -16,53 +16,44 @@
 
 package org.gradle.language.base.plugins
 
-import org.gradle.api.Task
-import org.gradle.api.internal.project.DefaultProject
-import org.gradle.api.tasks.TaskContainer
-import org.gradle.internal.reflect.DirectInstantiator
-import org.gradle.language.base.ProjectSourceSet
-import org.gradle.platform.base.BinaryContainer
-import org.gradle.platform.base.internal.BinarySpecInternal
-import org.gradle.platform.base.internal.DefaultBinaryContainer
-import org.gradle.util.TestUtil
-import spock.lang.Specification
+import org.gradle.language.base.LanguageSourceSet
+import org.gradle.platform.base.PlatformBaseSpecification
+import org.gradle.platform.base.plugins.ComponentBasePlugin
 
-class LanguageBasePluginTest extends Specification {
-    DefaultProject project = TestUtil.createRootProject()
-
-    def setup() {
-        project.pluginManager.apply(LanguageBasePlugin)
-    }
-
-    def "adds a 'binaries' container to the project"() {
-        expect:
-        project.extensions.findByName("binaries") instanceof BinaryContainer
-    }
-
-    def "adds a 'sources' container to the project"() {
-        expect:
-        project.extensions.findByName("sources") instanceof ProjectSourceSet
-    }
-
-    def "creates a lifecycle task for each binary"() {
-        def tasks = Mock(TaskContainer)
-        def binaries = new DefaultBinaryContainer(new DirectInstantiator())
-        def binary = Mock(BinarySpecInternal)
-        def task = Mock(Task)
-
+class LanguageBasePluginTest extends PlatformBaseSpecification {
+    def "applies component base plugin only"() {
         when:
-        binaries.add(binary)
-        def rules = new LanguageBasePlugin.Rules()
-        rules.createLifecycleTaskForBinary(tasks, binaries)
+        dsl {
+            apply plugin: LanguageBasePlugin
+        }
 
         then:
-        binary.name >> "binaryName"
-        binary.toString() >> "binary foo"
+        project.pluginManager.pluginContainer.size() == 3
+        project.pluginManager.pluginContainer.findPlugin(ComponentBasePlugin) != null
+        project.pluginManager.pluginContainer.findPlugin(LifecycleBasePlugin) != null
+    }
 
-        and:
-        1 * tasks.create("binaryName") >> task
-        1 * task.setGroup("build")
-        1 * task.setDescription("Assembles binary foo.")
-        1 * binary.setBuildTask(task)
+    def "registers LanguageSourceSet"() {
+        when:
+        dsl {
+            apply plugin: LanguageBasePlugin
+            model {
+                baseSourceSet(LanguageSourceSet) {
+                }
+            }
+        }
+
+        then:
+        realize("baseSourceSet") instanceof LanguageSourceSet
+    }
+
+    def "adds a 'sources' container to the project model"() {
+        when:
+        dsl {
+            apply plugin: LanguageBasePlugin
+        }
+
+        then:
+        realizeSourceSets() != null
     }
 }

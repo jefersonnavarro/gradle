@@ -20,9 +20,12 @@ import org.gradle.api.Project
 import org.gradle.api.specs.AndSpec
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.plugin.use.resolve.service.PluginResolutionServiceTestServer
+import org.gradle.test.fixtures.file.LeaksFileHandles
 import org.gradle.test.fixtures.plugin.PluginBuilder
 import org.junit.Rule
+import spock.lang.Issue
 
+@LeaksFileHandles
 class PluginUseClassLoadingIntegrationSpec extends AbstractIntegrationSpec {
 
     public static final String PLUGIN_ID = "org.myplugin"
@@ -37,7 +40,7 @@ class PluginUseClassLoadingIntegrationSpec extends AbstractIntegrationSpec {
     PluginResolutionServiceTestServer resolutionService = new PluginResolutionServiceTestServer(executer, mavenRepo)
 
     def setup() {
-        executer.requireGradleHome() // need accurate classloading
+        executer.requireGradleDistribution() // need accurate classloading
         executer.requireOwnGradleUserHomeDir()
         resolutionService.start()
     }
@@ -153,6 +156,20 @@ class PluginUseClassLoadingIntegrationSpec extends AbstractIntegrationSpec {
 
         then:
         succeeds "verify"
+    }
+
+    @Issue("GRADLE-3503")
+    def "Context classloader contains plugin classpath during application"() {
+        publishPlugin("""
+            def className = getClass().getName()
+            Thread.currentThread().getContextClassLoader().loadClass(className)
+            project.task("verify")
+        """)
+
+        buildScript USE
+
+        expect:
+        succeeds("verify")
     }
 
     void publishPlugin() {

@@ -16,42 +16,63 @@
 
 package org.gradle.platform.base.internal.registry;
 
-import org.gradle.internal.reflect.Instantiator;
+import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.internal.project.ProjectRegistry;
+import org.gradle.api.internal.resolve.DefaultProjectModelResolver;
+import org.gradle.api.internal.resolve.ProjectModelResolver;
 import org.gradle.internal.service.ServiceRegistration;
 import org.gradle.internal.service.scopes.PluginServiceRegistry;
 import org.gradle.model.internal.inspect.MethodModelRuleExtractor;
+import org.gradle.model.internal.manage.schema.ModelSchemaStore;
+import org.gradle.model.internal.manage.schema.extract.ModelSchemaAspectExtractionStrategy;
+import org.gradle.platform.base.internal.VariantAspectExtractionStrategy;
 
 public class ComponentModelBaseServiceRegistry implements PluginServiceRegistry {
 
+    @Override
     public void registerGlobalServices(ServiceRegistration registration) {
         registration.addProvider(new GlobalScopeServices());
     }
 
-    public void registerBuildServices(ServiceRegistration registration){
+    @Override
+    public void registerBuildSessionServices(ServiceRegistration registration) {
+
     }
 
+    @Override
+    public void registerBuildServices(ServiceRegistration registration) {
+        registration.addProvider(new BuildScopeServices());
+    }
+
+    @Override
+    public void registerGradleServices(ServiceRegistration registration) {
+    }
+
+    @Override
     public void registerProjectServices(ServiceRegistration registration) {
     }
 
+    private static class BuildScopeServices {
+        ProjectModelResolver createProjectLocator(final ProjectRegistry<ProjectInternal> projectRegistry) {
+            return new DefaultProjectModelResolver(projectRegistry);
+        }
+    }
+
     private static class GlobalScopeServices {
-        MethodModelRuleExtractor createLanguageTypePluginInspector() {
-            return new LanguageTypeModelRuleExtractor();
-        }
-
-        MethodModelRuleExtractor createComponentModelPluginInspector(Instantiator instantiator) {
-            return new ComponentTypeModelRuleExtractor(instantiator);
-        }
-
-        MethodModelRuleExtractor createBinaryTypeModelPluginInspector(Instantiator instantiator) {
-            return new BinaryTypeModelRuleExtractor(instantiator);
+        MethodModelRuleExtractor createComponentModelPluginInspector(ModelSchemaStore schemaStore) {
+            return new ComponentTypeModelRuleExtractor(schemaStore);
         }
 
         MethodModelRuleExtractor createComponentBinariesPluginInspector() {
             return new ComponentBinariesModelRuleExtractor();
         }
+
         MethodModelRuleExtractor createBinaryTaskPluginInspector() {
             return new BinaryTasksModelRuleExtractor();
         }
 
+        ModelSchemaAspectExtractionStrategy createVariantAspectExtractionStrategy() {
+            return new VariantAspectExtractionStrategy();
+        }
     }
 }

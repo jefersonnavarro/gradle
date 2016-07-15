@@ -15,12 +15,19 @@
  */
 package org.gradle.launcher.cli
 
+import org.gradle.StartParameter
 import org.gradle.cli.CommandLineParser
 import org.gradle.cli.SystemPropertiesCommandLineConverter
 import org.gradle.initialization.DefaultCommandLineConverter
 import org.gradle.initialization.LayoutCommandLineConverter
-import org.gradle.internal.os.OperatingSystem
+import org.gradle.internal.invocation.BuildActionRunner
+import org.gradle.internal.jvm.Jvm
+import org.gradle.internal.jvm.inspection.JvmVersionDetector
+import org.gradle.internal.logging.events.OutputEventListener
+import org.gradle.internal.logging.progress.ProgressLoggerFactory
+import org.gradle.internal.logging.text.StyledTextOutputFactory
 import org.gradle.internal.service.ServiceRegistry
+import org.gradle.internal.service.scopes.PluginServiceRegistry
 import org.gradle.launcher.cli.converter.DaemonCommandLineConverter
 import org.gradle.launcher.cli.converter.LayoutToPropertiesConverter
 import org.gradle.launcher.cli.converter.PropertiesToDaemonParametersConverter
@@ -28,14 +35,15 @@ import org.gradle.launcher.cli.converter.PropertiesToStartParameterConverter
 import org.gradle.launcher.daemon.bootstrap.ForegroundDaemonAction
 import org.gradle.launcher.daemon.client.DaemonClient
 import org.gradle.launcher.daemon.client.SingleUseDaemonClient
-import org.gradle.launcher.exec.InProcessBuildActionExecuter
-import org.gradle.logging.ProgressLoggerFactory
-import org.gradle.logging.internal.OutputEventListener
+import org.gradle.launcher.daemon.configuration.DaemonParameters
+import org.gradle.launcher.exec.ContinuousBuildActionExecuter
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.SetSystemProperties
+import org.gradle.util.UsesNativeServices
 import org.junit.Rule
 import spock.lang.Specification
 
+@UsesNativeServices
 class BuildActionsFactoryTest extends Specification {
     @Rule
     public final SetSystemProperties sysProperties = new SetSystemProperties();
@@ -43,32 +51,43 @@ class BuildActionsFactoryTest extends Specification {
     TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider();
     ServiceRegistry loggingServices = Mock()
     PropertiesToDaemonParametersConverter propertiesToDaemonParametersConverter = Stub()
-
-    BuildActionsFactory factory = new BuildActionsFactory(
-            loggingServices, Stub(DefaultCommandLineConverter), new DaemonCommandLineConverter(),
+    PropertiesToStartParameterConverter propertiesToStartParameterConverter = Stub()
+    JvmVersionDetector jvmVersionDetector = Stub()
+    ParametersConverter parametersConverter = new ParametersConverter(
             Stub(LayoutCommandLineConverter), Stub(SystemPropertiesCommandLineConverter),
-            Stub(LayoutToPropertiesConverter), Stub(PropertiesToStartParameterConverter),
+            Stub(LayoutToPropertiesConverter), propertiesToStartParameterConverter,
+            new DefaultCommandLineConverter(), new DaemonCommandLineConverter(),
             propertiesToDaemonParametersConverter)
+
+    BuildActionsFactory factory = new BuildActionsFactory(loggingServices, parametersConverter, jvmVersionDetector)
 
     def setup() {
         _ * loggingServices.get(OutputEventListener) >> Mock(OutputEventListener)
         _ * loggingServices.get(ProgressLoggerFactory) >> Mock(ProgressLoggerFactory)
+        _ * loggingServices.getAll(BuildActionRunner) >> []
+        _ * loggingServices.get(StyledTextOutputFactory) >> Mock(StyledTextOutputFactory)
+        _ * loggingServices.getAll(PluginServiceRegistry) >> []
+        _ * loggingServices.getAll(_) >> []
     }
 
-    def "executes build"() {
+    def "check that --max-workers overrides org.gradle.workers.max"() {
+        when:
+        propertiesToStartParameterConverter.convert(_, _) >> { args ->
+            def startParameter = (StartParameter) args[1]
+            startParameter.setMaxWorkerCount(3)
+        }
+        RunBuildAction action = convert('--max-workers=5')
+
+        then:
+        action.startParameter.maxWorkerCount == 5
+    }
+
+    def "by default daemon is used"() {
         when:
         def action = convert('args')
 
         then:
-        isInProcess(action)
-    }
-
-    def "by default daemon is not used"() {
-        when:
-        def action = convert('args')
-
-        then:
-        isInProcess action
+        isDaemon action
     }
 
     def "daemon is used when command line option is used"() {
@@ -85,6 +104,14 @@ class BuildActionsFactoryTest extends Specification {
 
         then:
         isInProcess action
+    }
+
+    def "shows status of daemons"() {
+        when:
+        def action = convert('--status')
+
+        then:
+        action instanceof ReportDaemonStatusAction
     }
 
     def "stops daemon"() {
@@ -105,12 +132,14 @@ class BuildActionsFactoryTest extends Specification {
 
     def "executes with single use daemon if java home is not current"() {
         given:
-        def javaHome = tmpDir.createDir("javahome")
-        javaHome.createFile(OperatingSystem.current().getExecutableName("bin/java"))
-        propertiesToDaemonParametersConverter.convert(_, _) >> { args -> args[1].javaHome = javaHome }
+        def javaHome = tmpDir.file("java-home")
+        javaHome.file("bin/java").createFile()
+        javaHome.file("bin/java.exe").createFile()
+        def jvm = Jvm.forHome(javaHome)
+        propertiesToDaemonParametersConverter.convert(_, _) >> { Map p, DaemonParameters params -> params.jvm = jvm }
 
         when:
-        def action = convert()
+        def action = convert('--no-daemon')
 
         then:
         isSingleUseDaemon action
@@ -130,7 +159,7 @@ class BuildActionsFactoryTest extends Specification {
 
     void isInProcess(def action) {
         assert action instanceof RunBuildAction
-        assert action.executer instanceof InProcessBuildActionExecuter
+        assert action.executer instanceof ContinuousBuildActionExecuter
     }
 
     void isSingleUseDaemon(def action) {

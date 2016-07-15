@@ -15,8 +15,6 @@
  */
 package org.gradle.api.specs;
 
-import java.util.List;
-
 /**
  * A {@link CompositeSpec} which requires any one of its specs to be true in order to evaluate to
  * true. Uses lazy evaluation.
@@ -24,6 +22,10 @@ import java.util.List;
  * @param <T> The target type for this Spec
  */
 public class OrSpec<T> extends CompositeSpec<T> {
+    public OrSpec() {
+        super();
+    }
+
     public OrSpec(Spec<? super T>... specs) {
         super(specs);
     }
@@ -33,16 +35,20 @@ public class OrSpec<T> extends CompositeSpec<T> {
     }
 
     public boolean isSatisfiedBy(T object) {
-        List<Spec<? super T>> specs = getSpecs();
-        if (specs.isEmpty()) {
+        Spec<? super T>[] specs = getSpecsArray();
+        if (specs.length == 0) {
             return true;
         }
-
         for (Spec<? super T> spec : specs) {
             if (spec.isSatisfiedBy(object)) {
                 return true;
             }
         }
         return false;
+    }
+
+    @Override
+    public int hashCode() {
+        return 13 * super.hashCode();
     }
 }

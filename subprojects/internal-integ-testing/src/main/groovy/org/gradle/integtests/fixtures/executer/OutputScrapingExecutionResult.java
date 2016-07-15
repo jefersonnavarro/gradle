@@ -15,42 +15,94 @@
  */
 package org.gradle.integtests.fixtures.executer;
 
+import com.google.common.io.CharSource;
 import org.apache.commons.collections.CollectionUtils;
 import org.gradle.api.Action;
+import org.gradle.api.UncheckedIOException;
+import org.gradle.util.TextUtil;
+import org.hamcrest.core.StringContains;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.StringReader;
-import java.util.*;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
+import static org.gradle.launcher.daemon.client.DaemonStartupMessage.STARTING_DAEMON_MESSAGE;
+import static org.gradle.util.TextUtil.normaliseLineSeparators;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
-import static org.hamcrest.Matchers.not;
 import static org.junit.Assert.assertThat;
 
 public class OutputScrapingExecutionResult implements ExecutionResult {
+    static final Pattern STACK_TRACE_ELEMENT = Pattern.compile("\\s+(at\\s+)?[\\w.$_]+\\.[\\w$_ =\\+\'-]+\\(.+?\\)");
     private final String output;
     private final String error;
 
+    private static final String TASK_LOGGER_DEBUG_PATTERN = "(?:.*\\s+\\[LIFECYCLE\\]\\s+\\[class org\\.gradle\\.TaskExecutionLogger\\]\\s+)?";
+
     //for example: ':a SKIPPED' or ':foo:bar:baz UP-TO-DATE' but not ':a'
-    private final Pattern skippedTaskPattern = Pattern.compile("(:\\S+?(:\\S+?)*)\\s+((SKIPPED)|(UP-TO-DATE))");
+    private final Pattern skippedTaskPattern = Pattern.compile(TASK_LOGGER_DEBUG_PATTERN + "(:\\S+?(:\\S+?)*)\\s+((SKIPPED)|(UP-TO-DATE)|(CACHED))");
 
     //for example: ':hey' or ':a SKIPPED' or ':foo:bar:baz UP-TO-DATE' but not ':a FOO'
-    private final Pattern taskPattern = Pattern.compile("(:\\S+?(:\\S+?)*)((\\s+SKIPPED)|(\\s+UP-TO-DATE)|(\\s+FAILED)|(\\s*))");
+    private final Pattern taskPattern = Pattern.compile(TASK_LOGGER_DEBUG_PATTERN + "(:\\S+?(:\\S+?)*)((\\s+SKIPPED)|(\\s+UP-TO-DATE)|(\\s+CACHED)|(\\s+FAILED)|(\\s*))");
 
     public OutputScrapingExecutionResult(String output, String error) {
-        this.output = output;
-        this.error = error;
+        this.output = TextUtil.normaliseLineSeparators(output);
+        this.error = TextUtil.normaliseLineSeparators(error);
     }
 
     public String getOutput() {
         return output;
     }
 
+    @Override
+    public String getNormalizedOutput() {
+        return normalize(output);
+    }
+
+    public static String normalize(String output) {
+        StringBuilder result = new StringBuilder();
+        List<String> lines;
+        try {
+            lines = CharSource.wrap(output).readLines();
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+        int i = 0;
+        while (i < lines.size()) {
+            String line = lines.get(i);
+            if (line.contains(STARTING_DAEMON_MESSAGE)) {
+                // Remove the "daemon starting" message
+                i++;
+            } else if (i == lines.size() - 1 && line.matches("Total time: [\\d\\.]+ secs")) {
+                result.append("Total time: 1 secs");
+                result.append('\n');
+                i++;
+            } else {
+                result.append(line);
+                result.append('\n');
+                i++;
+            }
+        }
+
+        return result.toString();
+    }
+
     public ExecutionResult assertOutputEquals(String expectedOutput, boolean ignoreExtraLines, boolean ignoreLineOrder) {
         SequentialOutputMatcher matcher = ignoreLineOrder ? new AnyOrderOutputMatcher() : new SequentialOutputMatcher();
-        matcher.assertOutputMatches(expectedOutput, getOutput(), ignoreExtraLines);
+        matcher.assertOutputMatches(expectedOutput, getNormalizedOutput(), ignoreExtraLines);
+        return this;
+    }
+
+    @Override
+    public ExecutionResult assertOutputContains(String expectedOutput) {
+        assertThat("Substring not found in build output", getOutput(), StringContains.containsString(normaliseLineSeparators(expectedOutput)));
         return this;
     }
 
@@ -68,38 +120,23 @@ public class OutputScrapingExecutionResult implements ExecutionResult {
         return this;
     }
 
-    public ExecutionResult assertTaskNotExecuted(String taskPath) {
-        Set<String> tasks = new HashSet<String>(getExecutedTasks());
-        assertThat(String.format("Expected task %s found in process output:%n%s", taskPath, getOutput()), tasks, not(hasItem(taskPath)));
-        return this;
-    }
-
     public Set<String> getSkippedTasks() {
         return new HashSet<String>(grepTasks(skippedTaskPattern));
     }
 
     public ExecutionResult assertTasksSkipped(String... taskPaths) {
-        if (GradleContextualExecuter.isParallel()) {
-            return this;
-        }
         Set<String> expectedTasks = new HashSet<String>(Arrays.asList(taskPaths));
         assertThat(String.format("Expected skipped tasks %s not found in process output:%n%s", expectedTasks, getOutput()), getSkippedTasks(), equalTo(expectedTasks));
         return this;
     }
 
     public ExecutionResult assertTaskSkipped(String taskPath) {
-        if (GradleContextualExecuter.isParallel()) {
-            return this;
-        }
         Set<String> tasks = new HashSet<String>(getSkippedTasks());
         assertThat(String.format("Expected skipped task %s not found in process output:%n%s", taskPath, getOutput()), tasks, hasItem(taskPath));
         return this;
     }
 
     public ExecutionResult assertTasksNotSkipped(String... taskPaths) {
-        if (GradleContextualExecuter.isParallel()) {
-            return this;
-        }
         Set<String> tasks = new HashSet<String>(getNotSkippedTasks());
         Set<String> expectedTasks = new HashSet<String>(Arrays.asList(taskPaths));
         assertThat(String.format("Expected executed tasks %s not found in process output:%n%s", expectedTasks, getOutput()), tasks, equalTo(expectedTasks));
@@ -113,9 +150,6 @@ public class OutputScrapingExecutionResult implements ExecutionResult {
     }
 
     public ExecutionResult assertTaskNotSkipped(String taskPath) {
-        if (GradleContextualExecuter.isParallel()) {
-            return this;
-        }
         Set<String> tasks = new HashSet<String>(getNotSkippedTasks());
         assertThat(String.format("Expected executed task %s not found in process output:%n%s", taskPath, getOutput()), tasks, hasItem(taskPath));
         return this;

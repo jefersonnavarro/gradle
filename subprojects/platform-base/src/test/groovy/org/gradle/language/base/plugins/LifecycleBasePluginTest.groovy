@@ -18,18 +18,22 @@ package org.gradle.language.base.plugins
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.Task
-import org.gradle.api.internal.project.DefaultProject
 import org.gradle.api.tasks.Delete
-import org.gradle.language.base.internal.tasks.AssembleBinariesTask
-import org.gradle.util.TestUtil
-import spock.lang.Specification
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
 import static org.gradle.api.tasks.TaskDependencyMatchers.dependsOn
 import static org.gradle.language.base.plugins.LifecycleBasePlugin.*
 import static org.hamcrest.Matchers.instanceOf
 
-class LifecycleBasePluginTest extends Specification {
-    private final DefaultProject project = TestUtil.createRootProject()
+class LifecycleBasePluginTest extends AbstractProjectBuilderSpec {
+
+    def "can apply plugin by id"() {
+        given:
+        project.apply plugin: 'lifecycle-base'
+
+        expect:
+        project.plugins.hasPlugin(LifecycleBasePlugin)
+    }
 
     public void createsTasksAndAppliesMappings() {
         when:
@@ -39,12 +43,13 @@ class LifecycleBasePluginTest extends Specification {
         def clean = project.tasks[CLEAN_TASK_NAME]
         clean instanceOf(Delete)
         clean dependsOn()
+        clean.group == BUILD_GROUP
         clean.targetFiles.files == [project.buildDir] as Set
 
         and:
         def assemble = project.tasks[ASSEMBLE_TASK_NAME]
         assemble.group == BUILD_GROUP
-        assemble instanceOf(AssembleBinariesTask)
+        assemble instanceOf(DefaultTask)
 
         and:
         def check = project.tasks[CHECK_TASK_NAME]
@@ -53,7 +58,7 @@ class LifecycleBasePluginTest extends Specification {
 
         and:
         def build = project.tasks[BUILD_TASK_NAME]
-        build.group == LifecycleBasePlugin.BUILD_GROUP
+        build.group == BUILD_GROUP
         build dependsOn(ASSEMBLE_TASK_NAME, CHECK_TASK_NAME)
         check instanceOf(DefaultTask)
     }
@@ -61,7 +66,7 @@ class LifecycleBasePluginTest extends Specification {
     public void addsACleanRule() {
         given:
         Task test = project.task('test')
-        test.outputs.files(project.buildDir)
+        test.outputs.dir(project.buildDir)
 
         when:
         project.pluginManager.apply(LifecycleBasePlugin)

@@ -17,6 +17,7 @@
 package org.gradle.performance.fixture;
 
 import org.joda.time.DateTime;
+import org.joda.time.DateTimeZone;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,11 +28,15 @@ class GCEventParser {
     private final Pattern ignorePattern;
 
     GCEventParser(char decimalSeparator) {
-        pattern = Pattern.compile(String.format("(.+): \\[(?:(?:Full GC(?: [^\\s]+)?)|GC) (\\d+\\%s\\d+: )?\\[.*\\] (\\d+)K->(\\d+)K\\((\\d+)K\\)", decimalSeparator, decimalSeparator));
-        ignorePattern = Pattern.compile(String.format("\\s*\\[Times: .+\\]\\s*"));
+        pattern = Pattern.compile(String.format("(.+): \\[(?:(?:Full )?GC(?: ?(?:[^\\s]+|\\(.+?\\)))?) (?:\\d+\\%s\\d+: )?(?:--)?\\[.*\\] (\\d+)K->(\\d+)K\\((\\d+)K\\)", decimalSeparator));
+        ignorePattern = Pattern.compile(String.format("Java HotSpot.+|Memory:.+|/proc.+|CommandLine flags:.+|\\s*\\[Times: .+\\]\\s*"));
     }
 
     GCEvent parseLine(String line) {
+        if (line.trim().isEmpty()) {
+            return GCEvent.IGNORED;
+        }
+
         Matcher matcher = pattern.matcher(line);
         if (!matcher.lookingAt()) {
             if (ignorePattern.matcher(line).matches()) {
@@ -43,9 +48,11 @@ class GCEventParser {
         }
 
         DateTime timestamp = DateTime.parse(matcher.group(1));
-        long start = Long.parseLong(matcher.group(3));
-        long end = Long.parseLong(matcher.group(4));
-        long committed = Long.parseLong(matcher.group(5));
+        // Some JVMs generate an incorrect timezone offset in the timestamps. Discard timezone and use the local timezone instead
+        timestamp = timestamp.toLocalDateTime().toDateTime(DateTimeZone.getDefault());
+        long start = Long.parseLong(matcher.group(2));
+        long end = Long.parseLong(matcher.group(3));
+        long committed = Long.parseLong(matcher.group(4));
 
         return new GCEvent(start, end, committed, timestamp);
     }

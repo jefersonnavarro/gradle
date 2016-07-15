@@ -17,34 +17,39 @@ package org.gradle.ide.visualstudio.internal;
 
 import org.gradle.api.NamedDomainObjectSet;
 import org.gradle.api.internal.file.FileResolver;
+import org.gradle.api.internal.project.ProjectIdentifier;
+import org.gradle.api.internal.resolve.ProjectModelResolver;
 import org.gradle.ide.visualstudio.VisualStudioProject;
 import org.gradle.ide.visualstudio.VisualStudioSolution;
 import org.gradle.internal.reflect.Instantiator;
-import org.gradle.nativeplatform.internal.resolve.ProjectLocator;
 
 public class DefaultVisualStudioExtension implements VisualStudioExtensionInternal {
     private final VisualStudioProjectRegistry projectRegistry;
     private final VisualStudioSolutionRegistry solutionRegistry;
 
-    public DefaultVisualStudioExtension(Instantiator instantiator, ProjectLocator projectLocator, FileResolver fileResolver) {
+    public DefaultVisualStudioExtension(ProjectIdentifier projectIdentifier, Instantiator instantiator, ProjectModelResolver projectModelResolver, FileResolver fileResolver) {
         VisualStudioProjectMapper projectMapper = new VisualStudioProjectMapper();
-        projectRegistry = new VisualStudioProjectRegistry(fileResolver, projectMapper, instantiator);
-        VisualStudioProjectResolver projectResolver = new VisualStudioProjectResolver(projectLocator);
-        solutionRegistry = new VisualStudioSolutionRegistry(fileResolver, projectResolver, instantiator);
+        projectRegistry = new VisualStudioProjectRegistry(projectIdentifier, fileResolver, projectMapper, instantiator);
+        VisualStudioProjectResolver projectResolver = new VisualStudioProjectResolver(projectModelResolver);
+        solutionRegistry = new VisualStudioSolutionRegistry(projectIdentifier, fileResolver, projectResolver, instantiator);
     }
 
+    @Override
     public NamedDomainObjectSet<? extends VisualStudioProject> getProjects() {
         return projectRegistry;
     }
 
+    @Override
     public VisualStudioProjectRegistry getProjectRegistry() {
         return projectRegistry;
     }
 
+    @Override
     public NamedDomainObjectSet<? extends VisualStudioSolution> getSolutions() {
         return solutionRegistry;
     }
 
+    @Override
     public VisualStudioSolutionRegistry getSolutionRegistry() {
         return solutionRegistry;
     }

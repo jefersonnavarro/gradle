@@ -20,6 +20,7 @@ import org.gradle.tooling.BuildLauncher
 
 class UserHomeDirCrossVersionSpec extends ToolingApiSpecification {
     def "build is executed using specified user home directory"() {
+        toolingApi.requireIsolatedDaemons()
         File userHomeDir = temporaryFolder.createDir('userhomedir')
         projectDir.file('settings.gradle') << 'rootProject.name="test"'
         projectDir.file('build.gradle') << """task gradleBuild << {
@@ -29,10 +30,10 @@ class UserHomeDirCrossVersionSpec extends ToolingApiSpecification {
         ByteArrayOutputStream baos = new ByteArrayOutputStream()
 
         when:
+        toolingApi.withUserHome(userHomeDir)
         toolingApi.withConnector { connector ->
             connector.useGradleUserHomeDir(userHomeDir)
         }
-        // TODO radim: consider using smaller heap and shorter timeout when applicable to all supported versions
         toolingApi.withConnection { connection ->
             BuildLauncher build = connection.newBuild();
             build.forTasks("gradleBuild");

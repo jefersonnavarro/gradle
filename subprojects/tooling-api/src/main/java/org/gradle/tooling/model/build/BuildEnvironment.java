@@ -16,6 +16,8 @@
 
 package org.gradle.tooling.model.build;
 
+import org.gradle.api.Incubating;
+import org.gradle.tooling.model.BuildIdentifier;
 import org.gradle.tooling.model.Model;
 import org.gradle.tooling.model.UnsupportedMethodException;
 
@@ -40,6 +42,13 @@ import org.gradle.tooling.model.UnsupportedMethodException;
  * @since 1.0-milestone-8
  */
 public interface BuildEnvironment extends Model {
+    /**
+     * Returns the identifier for the Gradle project that these invocations originate from.
+     *
+     * @since 2.13
+     */
+    @Incubating
+    BuildIdentifier getBuildIdentifier();
 
     /**
      * Returns information about the Gradle environment, for example the Gradle version.
@@ -52,8 +61,7 @@ public interface BuildEnvironment extends Model {
      * Returns information about the Java environment, for example the Java home or the JVM args used.
      *
      * @since 1.0-milestone-8
-     * @throws org.gradle.tooling.model.UnsupportedMethodException
-     * when the Gradle version the tooling API is connected to does not support the Java environment information.
+     * @throws UnsupportedMethodException For Gradle versions older than 1.0-milestone-8, where this method is not supported.
      */
     JavaEnvironment getJava() throws UnsupportedMethodException;
 }

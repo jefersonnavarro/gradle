@@ -19,11 +19,21 @@ package org.gradle.api.tasks.javadoc;
 import groovy.lang.Closure;
 import org.gradle.api.Incubating;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.tasks.*;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.Nested;
+import org.gradle.api.tasks.Optional;
+import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.ParallelizableTask;
+import org.gradle.api.tasks.SourceTask;
+import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.javadoc.internal.JavadocSpec;
 import org.gradle.external.javadoc.MinimalJavadocOptions;
 import org.gradle.external.javadoc.StandardJavadocDocletOptions;
 import org.gradle.jvm.internal.toolchain.JavaToolChainInternal;
+import org.gradle.jvm.platform.JavaPlatform;
+import org.gradle.jvm.platform.internal.DefaultJavaPlatform;
 import org.gradle.jvm.toolchain.JavaToolChain;
 import org.gradle.language.base.internal.compile.Compiler;
 import org.gradle.util.GUtil;
@@ -137,7 +147,7 @@ public class Javadoc extends SourceTask {
         spec.setWorkingDir(getProject().getProjectDir());
         spec.setOptionsFile(getOptionsFile());
 
-        Compiler<JavadocSpec> generator = ((JavaToolChainInternal) getToolChain()).select(null).newCompiler(spec);
+        Compiler<JavadocSpec> generator = ((JavaToolChainInternal) getToolChain()).select(getPlatform()).newCompiler(JavadocSpec.class);
         generator.execute(spec);
     }
 
@@ -159,13 +169,27 @@ public class Javadoc extends SourceTask {
         throw new UnsupportedOperationException();
     }
 
+    @Internal
+    private JavaPlatform getPlatform() {
+        return DefaultJavaPlatform.current();
+    }
+
     /**
      * <p>Returns the directory to generate the documentation into.</p>
      *
      * @return The directory.
      */
-    @OutputDirectory
+    @Internal
     public File getDestinationDir() {
+        return destinationDir;
+    }
+
+    @OutputDirectory
+    protected File getOutputDirectory() {
+        File destinationDir = getDestinationDir();
+        if (destinationDir == null) {
+            destinationDir = options.getDestinationDirectory();
+        }
         return destinationDir;
     }
 
@@ -179,6 +203,7 @@ public class Javadoc extends SourceTask {
     /**
      * Returns the amount of memory allocated to this task.
      */
+    @Optional @Input
     public String getMaxMemory() {
         return maxMemory;
     }
@@ -215,6 +240,7 @@ public class Javadoc extends SourceTask {
      *
      * @see #setVerbose(boolean)
      */
+    @Internal
     public boolean isVerbose() {
         return options.isVerbose();
     }
@@ -291,6 +317,7 @@ public class Javadoc extends SourceTask {
         this.failOnError = failOnError;
     }
 
+    @Internal
     public File getOptionsFile() {
         return new File(getTemporaryDir(), "javadoc.options");
     }

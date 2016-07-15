@@ -16,30 +16,21 @@
 
 package org.gradle.performance.fixture
 
+import org.gradle.api.Transformer
 import org.gradle.api.logging.Logging
 
-public class CrossVersionPerformanceResults {
+public class CrossVersionPerformanceResults extends PerformanceTestResult {
     private final static LOGGER = Logging.getLogger(CrossVersionPerformanceResults.class)
 
-    String testId
     String testProject
-    String[] args
-    String[] tasks
-    String jvm
-    String operatingSystem
-    long testTime
-    String versionUnderTest
-    String vcsBranch
-    String vcsCommit
+    List<String> args
+    List<String> tasks
+    List<String> gradleOpts
+    Boolean daemon
 
     private final Map<String, BaselineVersion> baselineVersions = new LinkedHashMap<>()
     final MeasuredOperationList current = new MeasuredOperationList(name: "Current Gradle")
     private final results = new CurrentVersionResults(current)
-
-    def clear() {
-        baselineVersions.values().each { it.clearResults() }
-        current.clear()
-    }
 
     @Override
     String toString() {
@@ -91,6 +82,7 @@ public class CrossVersionPerformanceResults {
     }
 
     void assertCurrentVersionHasNotRegressed() {
+        // TODO: Make it configurable from the commandline to only check for Performance/Memory regressions
         def slower = checkBaselineVersion({ it.fasterThan(current) }, { it.getSpeedStatsAgainst(displayName, current) })
         def larger = checkBaselineVersion({ it.usesLessMemoryThan(current) }, { it.getMemoryStatsAgainst(displayName, current) })
         assertEveryBuildSucceeds()
@@ -105,12 +97,12 @@ public class CrossVersionPerformanceResults {
         }
     }
 
-    private String checkBaselineVersion(Closure fails, Closure provideMessage) {
+    private String checkBaselineVersion(Transformer<Boolean, BaselineVersion> fails, Transformer<String, BaselineVersion> provideMessage) {
         def failed = false
         def failure = new StringBuilder()
-        baselineVersions.values().each {
-            String message = provideMessage(it)
-            if (fails(it)) {
+        baselineVersions.values().each { it ->
+            String message = provideMessage.transform(it)
+            if (fails.transform(it)) {
                 failed = true
                 failure.append message
             }

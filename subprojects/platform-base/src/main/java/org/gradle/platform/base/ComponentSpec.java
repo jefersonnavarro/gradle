@@ -16,38 +16,18 @@
 
 package org.gradle.platform.base;
 
-import org.gradle.api.*;
+import org.gradle.api.Incubating;
 import org.gradle.internal.HasInternalProtocol;
-import org.gradle.language.base.LanguageSourceSet;
+import org.gradle.model.ModelElement;
 
 /**
- * A software component that is built by a Gradle project.
+ * A software component that is built by Gradle.
  */
 @Incubating
 @HasInternalProtocol
-public interface ComponentSpec extends Named {
+public interface ComponentSpec extends ModelElement {
     /**
-     * The path the the project containing this component.
+     * The path to the project containing this component.
      */
     String getProjectPath();
-
-    /**
-     * Returns a human-consumable display name for this component.
-     */
-    String getDisplayName();
-
-    /**
-     * The source sets that are used to build this component.
-     */
-    DomainObjectSet<LanguageSourceSet> getSource();
-
-    /**
-     * Configure the source sets used to build this component.
-     */
-    void sources(Action<? super PolymorphicDomainObjectContainer<LanguageSourceSet>> action);
-
-    /**
-     * The binaries that are built for this component. You can use this to configure the binaries for this component.
-     */
-    DomainObjectSet<BinarySpec> getBinaries();
 }

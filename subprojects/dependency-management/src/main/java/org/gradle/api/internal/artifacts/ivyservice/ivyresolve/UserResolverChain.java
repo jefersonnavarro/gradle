@@ -20,38 +20,32 @@ import org.gradle.api.Transformer;
 import org.gradle.api.internal.artifacts.ComponentSelectionRulesInternal;
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.VersionComparator;
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.VersionSelectorScheme;
-import org.gradle.internal.component.external.model.ModuleComponentResolveMetaData;
+import org.gradle.internal.component.external.model.ModuleComponentResolveMetadata;
 import org.gradle.internal.resolve.resolver.ArtifactResolver;
 import org.gradle.internal.resolve.resolver.ComponentMetaDataResolver;
 import org.gradle.internal.resolve.resolver.DependencyToComponentIdResolver;
-import org.gradle.internal.resolve.resolver.DependencyToComponentResolver;
 
-public class UserResolverChain implements RepositoryChain {
-    private final RepositoryChainDependencyResolver dependencyResolver;
-    private final RepositoryChainArtifactResolver artifactResolver = new RepositoryChainArtifactResolver();
-    private final RepositoryChainAdapter adapter;
-    private final DynamicVersionResolver dynamicVersionResolver;
+public class UserResolverChain implements ComponentResolvers {
+    private final RepositoryChainDependencyToComponentIdResolver componentIdResolver;
+    private final RepositoryChainComponentMetaDataResolver componentResolver;
+    private final RepositoryChainArtifactResolver artifactResolver;
     private final ComponentSelectionRulesInternal componentSelectionRules;
 
     public UserResolverChain(VersionSelectorScheme versionSelectorScheme, VersionComparator versionComparator, ComponentSelectionRulesInternal componentSelectionRules) {
         this.componentSelectionRules = componentSelectionRules;
-        NewestVersionComponentChooser componentChooser = new NewestVersionComponentChooser(versionComparator, versionSelectorScheme, componentSelectionRules);
+        VersionedComponentChooser componentChooser = new DefaultVersionedComponentChooser(versionComparator, versionSelectorScheme, componentSelectionRules);
         ModuleTransformer metaDataFactory = new ModuleTransformer();
-        dependencyResolver = new RepositoryChainDependencyResolver(componentChooser, metaDataFactory);
-        dynamicVersionResolver = new DynamicVersionResolver(componentChooser, metaDataFactory);
-        adapter = new RepositoryChainAdapter(dynamicVersionResolver, dependencyResolver, versionSelectorScheme);
+        componentIdResolver = new RepositoryChainDependencyToComponentIdResolver(versionSelectorScheme, componentChooser, metaDataFactory);
+        componentResolver = new RepositoryChainComponentMetaDataResolver(componentChooser, metaDataFactory);
+        artifactResolver = new RepositoryChainArtifactResolver();
     }
 
     public DependencyToComponentIdResolver getComponentIdResolver() {
-        return adapter;
+        return componentIdResolver;
     }
 
-    public ComponentMetaDataResolver getComponentMetaDataResolver() {
-        return adapter;
-    }
-
-    public DependencyToComponentResolver getDependencyResolver() {
-        return dependencyResolver;
+    public ComponentMetaDataResolver getComponentResolver() {
+        return componentResolver;
     }
 
     public ArtifactResolver getArtifactResolver() {
@@ -63,13 +57,13 @@ public class UserResolverChain implements RepositoryChain {
     }
 
     public void add(ModuleComponentRepository repository) {
-        dependencyResolver.add(repository);
-        dynamicVersionResolver.add(repository);
+        componentIdResolver.add(repository);
+        componentResolver.add(repository);
         artifactResolver.add(repository);
     }
 
-    private static class ModuleTransformer implements Transformer<ModuleComponentResolveMetaData, RepositoryChainModuleResolution> {
-        public ModuleComponentResolveMetaData transform(RepositoryChainModuleResolution original) {
+    private static class ModuleTransformer implements Transformer<ModuleComponentResolveMetadata, RepositoryChainModuleResolution> {
+        public ModuleComponentResolveMetadata transform(RepositoryChainModuleResolution original) {
             RepositoryChainModuleSource moduleSource = new RepositoryChainModuleSource(original.repository.getId(), original.module.getSource());
             original.module.setSource(moduleSource);
             return original.module;

@@ -21,15 +21,16 @@ import org.gradle.api.internal.specs.ExplainingSpec;
 import org.gradle.api.internal.specs.ExplainingSpecs;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
-import org.gradle.initialization.BuildAction;
-import org.gradle.initialization.BuildCancellationToken;
+import org.gradle.internal.invocation.BuildAction;
+import org.gradle.initialization.BuildRequestContext;
 import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.internal.id.IdGenerator;
+import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.launcher.daemon.context.DaemonContext;
 import org.gradle.launcher.daemon.protocol.Build;
 import org.gradle.launcher.daemon.protocol.BuildAndStop;
 import org.gradle.launcher.exec.BuildActionParameters;
-import org.gradle.logging.internal.OutputEventListener;
+import org.gradle.internal.logging.events.OutputEventListener;
 
 import java.io.InputStream;
 
@@ -45,12 +46,12 @@ public class SingleUseDaemonClient extends DaemonClient {
     }
 
     @Override
-    public <T> T execute(BuildAction<T> action, BuildCancellationToken cancellationToken, BuildActionParameters parameters) {
+    public Object execute(BuildAction action, BuildRequestContext buildRequestContext, BuildActionParameters parameters, ServiceRegistry contextServices) {
         LOGGER.lifecycle("{} Please consider using the daemon: {}.", MESSAGE, documentationRegistry.getDocumentationFor("gradle_daemon"));
-        Build build = new BuildAndStop(getIdGenerator().generateId(), action, parameters);
 
         DaemonClientConnection daemonConnection = getConnector().startDaemon(ExplainingSpecs.<DaemonContext>satisfyAll());
+        Build build = new BuildAndStop(getIdGenerator().generateId(), daemonConnection.getDaemon().getToken(), action, buildRequestContext.getClient(), buildRequestContext.getBuildTimeClock().getStartTime(), parameters);
 
-        return (T) executeBuild(build, daemonConnection, cancellationToken);
+        return executeBuild(build, daemonConnection, buildRequestContext.getCancellationToken(), buildRequestContext.getEventConsumer());
     }
 }

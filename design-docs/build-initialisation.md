@@ -7,6 +7,10 @@ When used with an existing build, this feature is intended to integrate closely 
 initial build is created using the build initialization feature, and then the build comparison feature can be used to drive
 manual changes to the Gradle build, and to inform when the Gradle build is ready to replace the existing build.
 
+It is possible for the user to influence how the build initialization is performed (project layout, libraries imported by default,
+which testing framework is used, etc). This is done by specifying an initialization modifer for the given project type. How many
+and which modifiers are supported will vary depending on the project type.
+
 # Use cases
 
 1. I have a multi-module Maven build that I want to migrate to Gradle.
@@ -33,13 +37,13 @@ files and supporting files.
 From the command-line:
 
 1. User downloads and installs a Gradle distribution.
-2. User runs `gradle init` from the root directory of the source tree.
+2. User runs `gradle init [--type <project-type> [--with <initialization-modifier>] ]` from the root directory of the source tree.
 3. User runs the appropriate build comparison task from the root directory.
 4. User modifies Gradle build, if required, directed by the build comparison report.
 
 From the IDE:
 
-1. User runs `initialize Gradle build` action from UI and selects the source tree to initialize.
+1. User runs `initialize Gradle build` action from UI, specifies `type` and `with` options if desired, and selects the source tree to initialize.
 2. User runs the appropriate build comparison task from the root directory.
 3. User modifies Gradle build, if required, directed by the build comparison report.
 
@@ -76,16 +80,6 @@ Add the following types:
 ## Test coverage
 
 - For each build type, generate and execute the build.
-
-# Story: User specifies target gradle version when generating the wrapper
-
-This story adds a commandline property `--gradle-version` to the `wrapper` task to specify the desired Gradle version:
-
-* Add `--gradle-version` command-line option to `wrapper`.
-
-## Test coverage
-
-* Running `gradle wrapper --gradle-version 1.6` generates valid `wrapper.properties` with correct URL.
 
 # Story: Update the user guide Java tutorial to use the `init` task
 

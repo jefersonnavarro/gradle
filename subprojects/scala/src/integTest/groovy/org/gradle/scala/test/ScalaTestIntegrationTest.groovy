@@ -17,13 +17,13 @@ package org.gradle.scala.test
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.DefaultTestExecutionResult
-import org.gradle.integtests.fixtures.ForkScalaCompileInDaemonModeFixture
+import org.gradle.integtests.fixtures.ZincScalaCompileFixture
 import org.gradle.integtests.fixtures.TestResources
 import org.junit.Rule
 
 class ScalaTestIntegrationTest extends AbstractIntegrationSpec {
     @Rule TestResources resources = new TestResources(temporaryFolder)
-    @Rule public final ForkScalaCompileInDaemonModeFixture forkScalaCompileInDaemonModeFixture = new ForkScalaCompileInDaemonModeFixture(executer, temporaryFolder)
+    @Rule public final ZincScalaCompileFixture zincScalaCompileFixture = new ZincScalaCompileFixture(executer, temporaryFolder)
 
     def executesTestsWithMultiLineDescriptions() {
         file("build.gradle") << """
@@ -36,7 +36,7 @@ repositories {
 dependencies {
     compile "org.scala-lang:scala-library:2.11.1"
     testCompile "org.scalatest:scalatest_2.11:2.1.5"
-    testCompile "junit:junit:4.11"
+    testCompile "junit:junit:4.12"
 }
         """
 

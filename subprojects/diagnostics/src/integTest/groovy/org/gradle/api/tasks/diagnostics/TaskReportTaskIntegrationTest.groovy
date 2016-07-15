@@ -19,8 +19,6 @@ package org.gradle.api.tasks.diagnostics
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import spock.lang.Issue
 
-import static org.gradle.util.TextUtil.toPlatformLineSeparators
-
 class TaskReportTaskIntegrationTest extends AbstractIntegrationSpec {
 
     def "task selector description is taken from task that TaskNameComparator considers to be of lowest ordering"() {
@@ -40,11 +38,59 @@ task alpha { description = 'ALPHA_in_sub2' }
         run "tasks"
 
         then:
-        output.contains(toPlatformLineSeparators("""
+        output.contains """
 Other tasks
 -----------
 alpha - ALPHA_in_sub1
-"""))
+"""
+    }
+
+    def "task report includes tasks defined via model rules"() {
+        when:
+        buildScript """
+            model {
+                tasks {
+                    create("t1") {
+                        description = "from model rule"
+                    }
+                }
+            }
+        """
+
+        then:
+        succeeds "tasks"
+
+        and:
+        output.contains("t1 - from model rule")
+    }
+
+    def "task report includes task container rule based tasks which are a dependency of a task defined via model rule"() {
+        when:
+        buildScript """
+            tasks.addRule("Pattern: containerRule<ID>") { taskName ->
+                if (taskName.startsWith("containerRule")) {
+                    task(taskName) {
+                        description = "from container rule"
+                    }
+                }
+            }
+
+            model {
+                tasks {
+                    create("t1") {
+                        description = "from model rule"
+                        dependsOn "containerRule1"
+                    }
+                }
+            }
+        """
+
+        then:
+        succeeds "tasks", "--all"
+
+        and:
+        output.contains("t1 - from model rule")
+        output.contains("containerRule1 - from container rule")
     }
 
     @Issue("https://issues.gradle.org/browse/GRADLE-2023")

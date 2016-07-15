@@ -16,8 +16,8 @@
 package org.gradle.api.internal.artifacts.ivyservice.ivyresolve;
 
 import org.gradle.api.artifacts.cache.ResolutionRules;
+import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.internal.artifacts.ComponentMetadataProcessor;
-import org.gradle.api.internal.artifacts.configurations.ConfigurationInternal;
 import org.gradle.api.internal.artifacts.configurations.ResolutionStrategyInternal;
 import org.gradle.api.internal.artifacts.configurations.dynamicversion.CachePolicy;
 import org.gradle.api.internal.artifacts.ivyservice.CacheLockingManager;
@@ -35,9 +35,9 @@ import org.gradle.internal.component.model.*;
 import org.gradle.internal.resolve.resolver.ArtifactResolver;
 import org.gradle.internal.resolve.resolver.ComponentMetaDataResolver;
 import org.gradle.internal.resolve.resolver.DependencyToComponentIdResolver;
-import org.gradle.internal.resolve.resolver.DependencyToComponentResolver;
 import org.gradle.internal.resolve.result.BuildableArtifactResolveResult;
 import org.gradle.internal.resolve.result.BuildableArtifactSetResolveResult;
+import org.gradle.internal.resolve.result.BuildableComponentIdResolveResult;
 import org.gradle.internal.resolve.result.BuildableComponentResolveResult;
 import org.gradle.internal.resource.cached.CachedArtifactIndex;
 import org.gradle.util.BuildCommencedTimeProvider;
@@ -72,14 +72,13 @@ public class ResolveIvyFactory {
         this.versionComparator = versionComparator;
     }
 
-    public RepositoryChain create(ConfigurationInternal configuration,
+    public ComponentResolvers create(ResolutionStrategyInternal resolutionStrategy,
                                   Collection<? extends ResolutionAwareRepository> repositories,
                                   ComponentMetadataProcessor metadataProcessor) {
         if (repositories.isEmpty()) {
             return new NoRepositoriesResolver();
         }
 
-        ResolutionStrategyInternal resolutionStrategy = configuration.getResolutionStrategy();
         ResolutionRules resolutionRules = resolutionStrategy.getResolutionRules();
         CachePolicy cachePolicy = resolutionStrategy.getCachePolicy();
 
@@ -92,12 +91,9 @@ public class ResolveIvyFactory {
             ConfiguredModuleComponentRepository baseRepository = repository.createResolver();
 
             if (baseRepository instanceof ExternalResourceResolver) {
-                ((ExternalResourceResolver) baseRepository).setRepositoryChain(parentModuleResolver);
+                ((ExternalResourceResolver) baseRepository).setComponentResolvers(parentModuleResolver);
             }
 
-            // TODO:DAZ In theory we could update this so that _all_ repositories are wrapped in a cache:
-            //     - would need to add local/remote pattern to artifact download
-            //     - This might help later when we integrate in-memory caching with file-backed caching.
             ModuleComponentRepository moduleComponentRepository = baseRepository;
             if (baseRepository.isLocal()) {
                 moduleComponentRepository = new LocalModuleComponentRepository(baseRepository, metadataProcessor);
@@ -112,6 +108,7 @@ public class ResolveIvyFactory {
                 moduleComponentRepository = IvyDynamicResolveModuleComponentRepositoryAccess.wrap(moduleComponentRepository);
             }
             moduleComponentRepository = inMemoryCache.cached(moduleComponentRepository);
+            moduleComponentRepository = new ErrorHandlingModuleComponentRepository(moduleComponentRepository);
 
             moduleResolver.add(moduleComponentRepository);
             parentModuleResolver.add(moduleComponentRepository);
@@ -123,7 +120,7 @@ public class ResolveIvyFactory {
     /**
      * Provides access to the top-level resolver chain for looking up parent modules when parsing module descriptor files.
      */
-    private static class ParentModuleLookupResolver implements RepositoryChain, DependencyToComponentResolver, ArtifactResolver {
+    private static class ParentModuleLookupResolver implements ComponentResolvers, DependencyToComponentIdResolver, ComponentMetaDataResolver, ArtifactResolver {
         private final CacheLockingManager cacheLockingManager;
         private final UserResolverChain delegate;
 
@@ -136,48 +133,54 @@ public class ResolveIvyFactory {
             delegate.add(moduleComponentRepository);
         }
 
-        public ComponentMetaDataResolver getComponentMetaDataResolver() {
-            throw new UnsupportedOperationException();
+        public DependencyToComponentIdResolver getComponentIdResolver() {
+            return this;
         }
 
-        public DependencyToComponentIdResolver getComponentIdResolver() {
-            throw new UnsupportedOperationException();
+        public ComponentMetaDataResolver getComponentResolver() {
+            return this;
         }
 
         public ArtifactResolver getArtifactResolver() {
             return this;
         }
 
-        public DependencyToComponentResolver getDependencyResolver() {
-            return this;
-        }
-
-        public void resolve(final DependencyMetaData dependency, final BuildableComponentResolveResult result) {
-            cacheLockingManager.useCache(String.format("Resolve %s", dependency), new Runnable() {
+        @Override
+        public void resolve(final DependencyMetadata dependency, final BuildableComponentIdResolveResult result) {
+            cacheLockingManager.useCache("Resolve " + dependency, new Runnable() {
                 public void run() {
-                    delegate.getDependencyResolver().resolve(dependency, result);
+                    delegate.getComponentIdResolver().resolve(dependency, result);
                 }
             });
         }
 
-        public void resolveModuleArtifacts(final ComponentResolveMetaData component, final ArtifactType artifactType, final BuildableArtifactSetResolveResult result) {
-            cacheLockingManager.useCache(String.format("Resolve %s for %s", artifactType, component), new Runnable() {
+        @Override
+        public void resolve(final ComponentIdentifier identifier, final ComponentOverrideMetadata componentOverrideMetadata, final BuildableComponentResolveResult result) {
+            cacheLockingManager.useCache("Resolve " + identifier, new Runnable() {
+                public void run() {
+                    delegate.getComponentResolver().resolve(identifier, componentOverrideMetadata, result);
+                }
+            });
+        }
+
+        public void resolveModuleArtifacts(final ComponentResolveMetadata component, final ArtifactType artifactType, final BuildableArtifactSetResolveResult result) {
+            cacheLockingManager.useCache("Resolve " + artifactType + " for " + component, new Runnable() {
                 public void run() {
                     delegate.getArtifactResolver().resolveModuleArtifacts(component, artifactType, result);
                 }
             });
         }
 
-        public void resolveModuleArtifacts(final ComponentResolveMetaData component, final ComponentUsage usage, final BuildableArtifactSetResolveResult result) {
-            cacheLockingManager.useCache(String.format("Resolve %s for %s", usage, component), new Runnable() {
+        public void resolveModuleArtifacts(final ComponentResolveMetadata component, final ComponentUsage usage, final BuildableArtifactSetResolveResult result) {
+            cacheLockingManager.useCache("Resolve " + usage + " for " + component, new Runnable() {
                 public void run() {
                     delegate.getArtifactResolver().resolveModuleArtifacts(component, usage, result);
                 }
             });
         }
 
-        public void resolveArtifact(final ComponentArtifactMetaData artifact, final ModuleSource moduleSource, final BuildableArtifactResolveResult result) {
-            cacheLockingManager.useCache(String.format("Resolve %s", artifact), new Runnable() {
+        public void resolveArtifact(final ComponentArtifactMetadata artifact, final ModuleSource moduleSource, final BuildableArtifactResolveResult result) {
+            cacheLockingManager.useCache("Resolve " + artifact, new Runnable() {
                 public void run() {
                     delegate.getArtifactResolver().resolveArtifact(artifact, moduleSource, result);
                 }

@@ -16,18 +16,24 @@
 
 package org.gradle.performance.fixture
 
-import org.gradle.integtests.fixtures.executer.GradleExecuter
 import org.gradle.performance.measure.DataAmount
 import org.gradle.performance.measure.MeasuredOperation
 
 public class MemoryInfoCollector implements DataCollector {
     String outputFileName
 
-    public void beforeExecute(File testProjectDir, GradleExecuter executer) {
+    @Override
+    List<String> getAdditionalJvmOpts(File workingDir) {
+        return Collections.emptyList();
     }
 
-    public void collect(File testProjectDir, MeasuredOperation operation) {
-        def file = new File(testProjectDir, outputFileName).canonicalFile
+    @Override
+    List<String> getAdditionalArgs(File workingDir) {
+        return Collections.emptyList();
+    }
+
+    public void collect(BuildExperimentInvocationInfo invocationInfo, MeasuredOperation operation) {
+        def file = new File(invocationInfo.getProjectDir(), outputFileName).canonicalFile
         if (!file.exists()) {
             throw new RuntimeException("Cannot find $file. Cannot collect memory information if the build hasn't produced one.")
         }

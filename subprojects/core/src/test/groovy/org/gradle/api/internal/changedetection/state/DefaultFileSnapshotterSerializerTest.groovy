@@ -16,23 +16,32 @@
 
 package org.gradle.api.internal.changedetection.state
 
-import org.gradle.messaging.serialize.SerializerSpec
+import org.gradle.api.internal.cache.StringInterner
+import org.gradle.cache.internal.MapBackedInMemoryStore
+import org.gradle.internal.hash.HashUtil
+import org.gradle.internal.serialize.SerializerSpec
 
 class DefaultFileSnapshotterSerializerTest extends SerializerSpec {
-
-    def serializer = new DefaultFileSnapshotterSerializer()
+    def stringInterner = new StringInterner()
+    def treeSnapshotRepository = new TreeSnapshotRepository(new InMemoryCache(), stringInterner)
+    def serializer = new DefaultFileSnapshotterSerializer(stringInterner, treeSnapshotRepository)
 
     def "reads and writes the snapshot"() {
         when:
-        DefaultFileCollectionSnapshotter.FileCollectionSnapshotImpl out = serialize(new DefaultFileCollectionSnapshotter.FileCollectionSnapshotImpl([
-                "1": new DefaultFileCollectionSnapshotter.DirSnapshot(),
-                "2": new DefaultFileCollectionSnapshotter.MissingFileSnapshot(),
-                "3": new DefaultFileCollectionSnapshotter.FileHashSnapshot("foo".bytes)]), serializer)
+        def hash = HashUtil.createHash("foo", "md5")
+        FileCollectionSnapshotImpl out = serialize(new FileCollectionSnapshotImpl([
+            "1": DirSnapshot.getInstance(),
+            "2": MissingFileSnapshot.getInstance(),
+            "3": new FileHashSnapshot(hash)]), serializer)
 
         then:
         out.snapshots.size() == 3
-        out.snapshots['1'] instanceof DefaultFileCollectionSnapshotter.DirSnapshot
-        out.snapshots['2'] instanceof DefaultFileCollectionSnapshotter.MissingFileSnapshot
-        ((DefaultFileCollectionSnapshotter.FileHashSnapshot) out.snapshots['3']).hash == "foo".bytes
+        out.snapshots['1'] instanceof DirSnapshot
+        out.snapshots['2'] instanceof MissingFileSnapshot
+        ((FileHashSnapshot) out.snapshots['3']).hash == hash
+    }
+
+    private static class InMemoryCache extends MapBackedInMemoryStore implements TaskArtifactStateCacheAccess {
+
     }
 }

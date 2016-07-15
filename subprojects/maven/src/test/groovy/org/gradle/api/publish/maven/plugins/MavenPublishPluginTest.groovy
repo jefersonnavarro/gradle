@@ -15,6 +15,7 @@
  */
 
 package org.gradle.api.publish.maven.plugins
+
 import org.gradle.api.artifacts.PublishArtifactSet
 import org.gradle.api.file.FileCollection
 import org.gradle.api.internal.component.SoftwareComponentInternal
@@ -24,13 +25,10 @@ import org.gradle.api.publish.maven.internal.publication.DefaultMavenPublication
 import org.gradle.api.publish.maven.tasks.PublishToMavenLocal
 import org.gradle.api.publish.maven.tasks.PublishToMavenRepository
 import org.gradle.api.tasks.TaskContainer
-import org.gradle.model.internal.fixture.ModelRegistryHelper
-import org.gradle.util.TestUtil
-import spock.lang.Specification
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
-class MavenPublishPluginTest extends Specification {
+class MavenPublishPluginTest extends AbstractProjectBuilderSpec {
 
-    def project = TestUtil.createRootProject()
     PublishingExtension publishing
     def componentArtifacts = Mock(FileCollection)
     def component = Stub(SoftwareComponentInternal)
@@ -82,7 +80,6 @@ class MavenPublishPluginTest extends Specification {
         expect:
         publishLocalTasks.size() == 1
         publishLocalTasks.first().name == "publishTestPublicationToMavenLocal"
-        publishLocalTasks.first().repository == null
     }
 
     def "can explicitly add mavenLocal as a publishing repository"() {
@@ -98,7 +95,6 @@ class MavenPublishPluginTest extends Specification {
         publishTasks.first().repository.is(mavenLocal)
 
         publishLocalTasks.size() == 1
-        publishLocalTasks.first().repository == null
     }
 
     def "tasks are created for compatible publication / repo"() {
@@ -124,7 +120,7 @@ class MavenPublishPluginTest extends Specification {
     }
 
     void closeTaskContainer() {
-        new ModelRegistryHelper(project.modelRegistry).get("tasks", TaskContainer)
+        project.modelRegistry.get("tasks", TaskContainer)
     }
 
     List<PublishToMavenRepository> getPublishTasks() {
@@ -161,14 +157,9 @@ class MavenPublishPluginTest extends Specification {
     def "pom dir moves with build dir"() {
         when:
         publishing.publications.create("test", MavenPublication)
-        closeTaskContainer()
-
-        then:
-        project.tasks["generatePomFileForTestPublication"].destination == new File(project.buildDir, "publications/test/pom-default.xml")
-
-        when:
         def newBuildDir = project.file("changed")
         project.buildDir = newBuildDir
+        closeTaskContainer()
 
         then:
         project.tasks["generatePomFileForTestPublication"].destination == new File(newBuildDir, "publications/test/pom-default.xml")

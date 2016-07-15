@@ -16,16 +16,17 @@
 
 package org.gradle.api.internal.changedetection.state
 
-import org.gradle.messaging.serialize.Serializer
-import org.gradle.messaging.serialize.SerializerSpec
+import org.gradle.api.internal.cache.StringInterner
+import org.gradle.internal.serialize.Serializer
+import org.gradle.internal.serialize.SerializerSpec
 
 class OutputFilesSnapshotSerializerTest extends SerializerSpec {
     def targetSerializer = Mock(Serializer)
-    def serializer = new OutputFilesSnapshotSerializer(targetSerializer)
+    def serializer = new OutputFilesSnapshotSerializer(targetSerializer, new StringInterner())
 
     def "reads and writes the snapshot"() {
         def snapshot = Stub(FileCollectionSnapshot)
-        def outputSnapshot = new OutputFilesCollectionSnapshotter.OutputFilesSnapshot(["x": 14L], snapshot)
+        def outputSnapshot = new OutputFilesCollectionSnapshotter.OutputFilesSnapshot([x: true, y: false], snapshot)
 
         given:
         1 * targetSerializer.write(_, snapshot)
@@ -35,7 +36,7 @@ class OutputFilesSnapshotSerializerTest extends SerializerSpec {
         OutputFilesCollectionSnapshotter.OutputFilesSnapshot out = serialize(outputSnapshot, serializer)
 
         then:
-        out.rootFileIds == ['x': 14L]
+        out.roots == [x: true, y: false]
         out.filesSnapshot == snapshot
     }
 }

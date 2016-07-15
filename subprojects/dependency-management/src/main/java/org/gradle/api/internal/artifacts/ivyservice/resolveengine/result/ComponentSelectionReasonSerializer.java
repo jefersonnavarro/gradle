@@ -19,9 +19,9 @@ package org.gradle.api.internal.artifacts.ivyservice.resolveengine.result;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import org.gradle.api.artifacts.result.ComponentSelectionReason;
-import org.gradle.messaging.serialize.Decoder;
-import org.gradle.messaging.serialize.Encoder;
-import org.gradle.messaging.serialize.Serializer;
+import org.gradle.internal.serialize.Decoder;
+import org.gradle.internal.serialize.Encoder;
+import org.gradle.internal.serialize.Serializer;
 
 import java.io.IOException;
 
@@ -38,6 +38,7 @@ public class ComponentSelectionReasonSerializer implements Serializer<ComponentS
         REASONS.put((byte) 4, CONFLICT_RESOLUTION);
         REASONS.put((byte) 5, SELECTED_BY_RULE);
         REASONS.put((byte) 6, CONFLICT_RESOLUTION_BY_RULE);
+        REASONS.put((byte) 7, COMPOSITE_BUILD);
     }
 
     public ComponentSelectionReason read(Decoder decoder) throws IOException {

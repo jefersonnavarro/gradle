@@ -59,7 +59,7 @@ public class SamplesIvyPublishIntegrationTest extends AbstractIntegrationSpec {
 
         project1module.parsedIvy.configurations.keySet() == ['default', 'runtime'] as Set
         project1module.parsedIvy.description == "The first project"
-        project1module.parsedIvy.assertDependsOn("junit:junit:4.11@runtime", "org.gradle.sample:project2:1.0@runtime")
+        project1module.parsedIvy.assertDependsOn("junit:junit:4.12@runtime", "org.gradle.sample:project2:1.0@runtime")
 
         and:
         project2module.assertPublished()
@@ -67,7 +67,7 @@ public class SamplesIvyPublishIntegrationTest extends AbstractIntegrationSpec {
 
         project2module.parsedIvy.configurations.keySet() == ['default', 'runtime'] as Set
         project2module.parsedIvy.description == "The second project"
-        project2module.parsedIvy.assertDependsOn('commons-collections:commons-collections:3.1@runtime')
+        project2module.parsedIvy.assertDependsOn('commons-collections:commons-collections:3.2.2@runtime')
 
         def actualIvyXmlText = project1module.ivyFile.text.replaceFirst('publication="\\d+"', 'publication="«PUBLICATION-TIME-STAMP»"').trim()
         actualIvyXmlText == getExpectedIvyOutput(javaProject.dir.file("output-ivy.xml"))

@@ -35,7 +35,7 @@ class MavenFileModuleTest extends Specification {
 
     def "Add multiple dependencies without type"() {
         when:
-        List dependencies = mavenFileModule.dependsOn("dep1", "dep2").dependencies
+        List dependencies = mavenFileModule.dependsOnModules("dep1", "dep2").dependencies
 
         then:
         dependencies != null
@@ -52,12 +52,12 @@ class MavenFileModuleTest extends Specification {
 
     def "Add single dependency"() {
         when:
-        List dependencies = mavenFileModule.dependsOn('my-company', 'dep1', 'jar', '1.0').dependencies
+        List dependencies = mavenFileModule.dependsOn('my-company', 'dep1', '1.0', 'jar', 'compile', null).dependencies
 
         then:
         dependencies != null
         dependencies.size() == 1
-        dependencies.get(0) == [groupId: 'my-company', artifactId: 'dep1', version: 'jar', type: '1.0']
+        dependencies.get(0) == [groupId: 'my-company', artifactId: 'dep1', version: '1.0', type: 'jar', scope: 'compile', classifier: null, exclusions: null]
     }
 
     def "Check packaging for set packaging"() {
@@ -191,7 +191,7 @@ class MavenFileModuleTest extends Specification {
         publishedFiles.find { it.name == 'maven-metadata.xml' }.exists()
         new XmlSlurper().parseText(publishedFiles.find { it.name == 'maven-metadata.xml' }.text).versioning.snapshot.timestamp.text() == '20100101.120001'
         new XmlSlurper().parseText(publishedFiles.find { it.name == 'maven-metadata.xml' }.text).versioning.snapshot.buildNumber.text() == '1'
-        snapshotMavenFileModule.assertArtifactsPublished('my-artifact-1.0-20100101.120001-1.jar', 'my-artifact-1.0-20100101.120001-1.pom')
+        snapshotMavenFileModule.assertArtifactsPublished('maven-metadata.xml', 'my-artifact-1.0-20100101.120001-1.jar', 'my-artifact-1.0-20100101.120001-1.pom')
     }
 
     def "Publish artifacts for non-unique snapshot"() {

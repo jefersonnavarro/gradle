@@ -17,10 +17,14 @@
 package org.gradle.api.internal.artifacts.repositories
 
 import org.gradle.api.Action
-import org.gradle.api.artifacts.repositories.AwsCredentials
+import org.gradle.api.InvalidUserDataException
+import org.gradle.api.artifacts.repositories.AuthenticationContainer
 import org.gradle.api.artifacts.repositories.PasswordCredentials
-import org.gradle.api.internal.ClosureBackedAction
+import org.gradle.authentication.Authentication
+import org.gradle.api.credentials.AwsCredentials
 import org.gradle.api.credentials.Credentials
+import org.gradle.api.internal.ClosureBackedAction
+import org.gradle.internal.authentication.DefaultAuthenticationContainer
 import org.gradle.internal.credentials.DefaultAwsCredentials
 import org.gradle.internal.reflect.DirectInstantiator
 import org.gradle.internal.reflect.Instantiator
@@ -29,67 +33,71 @@ import spock.lang.Unroll
 
 class AbstractAuthenticationSupportedRepositoryTest extends Specification {
 
+    AuthSupportedRepository repo() {
+        new AuthSupportedRepository(DirectInstantiator.INSTANCE, new DefaultAuthenticationContainer(DirectInstantiator.INSTANCE))
+    }
 
-    def "should configure default password credentials using a closure only"() {
+    def "should configure default password credentials using an action only"() {
         setup:
         DefaultPasswordCredentials passwordCredentials = new DefaultPasswordCredentials()
         enhanceCredentials(passwordCredentials, 'username', 'password')
 
         Instantiator instantiator = Mock()
+        AuthenticationContainer authenticationContainer = Stub()
         instantiator.newInstance(DefaultPasswordCredentials) >> passwordCredentials
 
-        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator)
+        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator, authenticationContainer)
 
-        Closure cls = {
-            username "myUsername"
-            password "myPassword"
+        def configAction = new Action<PasswordCredentials>() {
+            @Override
+            void execute(PasswordCredentials credentials) {
+                credentials.username = "myUsername"
+                credentials.password = "myPassword"
+            }
         }
 
         when:
-        repo.credentials(cls)
+        repo.credentials(configAction)
 
         then:
-        repo.credentials
-        repo.credentials.username == 'myUsername'
-        repo.credentials.password == 'myPassword'
+        repo.getCredentials(PasswordCredentials.class)
+        repo.getCredentials(PasswordCredentials.class).username == 'myUsername'
+        repo.getCredentials(PasswordCredentials.class).password == 'myPassword'
     }
 
-    def "should configure alternative credentials"() {
-        setup:
+    def "getCredentials(Class) instantiates credentials if not yet configured"() {
+        given:
         DefaultAwsCredentials enhancedCredentials = new DefaultAwsCredentials()
         enhanceCredentials(enhancedCredentials, 'accessKey', 'secretKey')
 
         Instantiator instantiator = Mock()
+        AuthenticationContainer authenticationContainer = Mock()
         instantiator.newInstance(DefaultAwsCredentials) >> enhancedCredentials
 
-        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator)
+        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator, authenticationContainer)
 
         def action = new ClosureBackedAction<DefaultAwsCredentials>({
             accessKey = 'key'
             secretKey = 'secret'
         })
 
-        when:
-        repo.credentials(AwsCredentials.class, action)
-        def credentials = repo.getAlternativeCredentials()
+        expect:
+        repo.getCredentials(AwsCredentials.class) instanceof AwsCredentials
 
-        then:
-        credentials.accessKey == 'key'
-        credentials.secretKey == 'secret'
     }
 
+
     @Unroll
-    def "should instantiate the correct default credential types "() {
+    def "getCredentials(Class) instantiates the correct credential types "() {
         Instantiator instantiator = Mock()
-        Action action = Mock()
-        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator)
+        AuthenticationContainer authenticationContainer = Mock()
+        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator, authenticationContainer)
 
         when:
-        repo.credentials(credentialType, action) == credentials
+        repo.getCredentials(credentialType) == credentials
 
         then:
         1 * instantiator.newInstance(_) >> credentials
-        1 * action.execute(credentials)
 
         where:
         credentialType      | credentials
@@ -97,57 +105,110 @@ class AbstractAuthenticationSupportedRepositoryTest extends Specification {
         PasswordCredentials | Mock(PasswordCredentials)
     }
 
-    def "getCredentials() throws IllegalStateException when credentials not of type PasswordCredentials"() {
+    def "getCredentials(Class) throws IllegalArgumentException when setting credentials with different type than already set"() {
         Instantiator instantiator = Mock()
-        Action action = Mock()
-        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator)
+        AuthenticationContainer authenticationContainer = Mock()
+        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator, authenticationContainer)
         1 * instantiator.newInstance(_) >> credentials
-        1 * action.execute(credentials)
 
         when:
-        repo.credentials(AwsCredentials, action)
+        repo.getCredentials(AwsCredentials)
         and:
-        repo.getCredentials()
+        repo.getCredentials(PasswordCredentials)
 
         then:
-        def ex = thrown(IllegalStateException)
-        ex.message == String.format("Requested credentials must be of type 'org.gradle.api.artifacts.repositories.PasswordCredentials'.", PasswordCredentials.class.name)
+        def ex = thrown(IllegalArgumentException)
+        ex.message == "Given credentials type '$PasswordCredentials.name' does not match actual type '$AwsCredentials.name'"
+
+        where:
+        credentials << Mock(AwsCredentials)
+    }
+
+    def "getCredentials(Class) throws IllegalArgumentException when setting credentials with unknown type"() {
+        AuthSupportedRepository repo = new AuthSupportedRepository(Mock(Instantiator), Mock(AuthenticationContainer))
+        when:
+        repo.getCredentials(UnsupportedCredentials)
+        then:
+        def ex = thrown(IllegalArgumentException)
+        ex.message == "Unknown credentials type: '$UnsupportedCredentials.name' (supported types: $PasswordCredentials.name and $AwsCredentials.name)."
+    }
+
+    def "credentials(Class, Action) creates credentials on demand if required"() {
+        Instantiator instantiator = Mock()
+        AuthenticationContainer authenticationContainer = Stub()
+
+        Action action = Mock()
+        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator, authenticationContainer)
+
+        when:
+        repo.credentials(credentialType, action)
+
+        then:
+        1 * instantiator.newInstance(_) >> credentials
+        1 * action.execute(credentials)
+        repo.getCredentials(credentialType) == credentials
 
         where:
         credentialType      | credentials
         AwsCredentials      | Mock(AwsCredentials)
+        PasswordCredentials | Mock(PasswordCredentials)
     }
 
-    def "should configure aws credentials"() {
+    def "can reference alternative credentials"() {
+        given:
         Instantiator instantiator = Mock()
-        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator)
-        def alternative = Mock(AwsCredentials)
+        AuthenticationContainer authenticationContainer = Stub()
+
         Action action = Mock()
-        1 * instantiator.newInstance(DefaultAwsCredentials) >> alternative
+        def credentials = Mock(AwsCredentials)
+        1 * instantiator.newInstance(_) >> credentials
+        1 * action.execute(credentials)
+
+        AuthSupportedRepository repo = new AuthSupportedRepository(instantiator, authenticationContainer)
+        when:
         repo.credentials(AwsCredentials, action)
 
-        when:
-        def credentials = repo.getAlternativeCredentials()
-
         then:
-        credentials == alternative
+        repo.getCredentials(AwsCredentials) instanceof AwsCredentials
     }
 
-    def "should throw IllegalStateException setting explicit authentication type multiple times"() {
-        setup:
-        def repo = new AuthSupportedRepository(new DirectInstantiator())
-        def action = new ClosureBackedAction<DefaultPasswordCredentials>({
-            accessKey = 'key'
-            secretKey = 'secret'
-        })
+    def "get credentials throws ISE if not using password credentials"() {
         when:
-        repo.credentials(AwsCredentials, action)
-        and:
-        repo.credentials(AwsCredentials, action)
+        repo().with {
+            credentials(AwsCredentials, {})
+            credentials
+        }
 
         then:
-        def ex = thrown(IllegalStateException)
-        ex.message == "Cannot overwrite already configured credentials."
+        thrown IllegalStateException
+    }
+
+    def "credentials(Action) throws ISE if not using password credentials"() {
+        when:
+        repo().with {
+            credentials(AwsCredentials, {})
+            credentials {}
+        }
+
+        then:
+        thrown IllegalStateException
+    }
+
+    def "authentication container throws IUD with authentication of unknown type"() {
+        def action = new Action<AuthenticationContainer>() {
+            @Override
+            void execute(AuthenticationContainer authentications) {
+                authentications.create('basic', UnsupportedAuthentication)
+            }
+        }
+
+        when:
+        repo().with {
+            authentication(action)
+        }
+
+        then:
+        thrown InvalidUserDataException
     }
 
     private void enhanceCredentials(Credentials credentials, String... props) {
@@ -159,8 +220,12 @@ class AbstractAuthenticationSupportedRepositoryTest extends Specification {
     }
 
     class AuthSupportedRepository extends AbstractAuthenticationSupportedRepository {
-        AuthSupportedRepository(Instantiator instantiator) {
-            super(instantiator)
+        AuthSupportedRepository(Instantiator instantiator, AuthenticationContainer authenticationContainer) {
+            super(instantiator, authenticationContainer)
         }
     }
+
+    interface UnsupportedCredentials extends Credentials {}
+
+    interface UnsupportedAuthentication extends Authentication {}
 }

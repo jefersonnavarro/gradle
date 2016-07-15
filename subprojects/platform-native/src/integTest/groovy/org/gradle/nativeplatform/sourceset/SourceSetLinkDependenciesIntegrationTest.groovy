@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-
 package org.gradle.nativeplatform.sourceset
+
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
@@ -68,7 +68,6 @@ model {
         lib1(NativeLibrarySpec)
         main(NativeExecutableSpec) {
             sources {
-                cpp(CppSourceSet)
                 cpp1(CppSourceSet)
             }
         }
@@ -99,7 +98,7 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == "12\n"
+        installation("build/install/main").exec().out == "12\n"
     }
 
     def "library dependency of 1 language source set is available to another when linking"() {
@@ -123,7 +122,7 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == "12\n"
+        installation("build/install/main").exec().out == "12\n"
     }
 
     def "dependencies of language source set added to binary are available when linking"() {
@@ -149,6 +148,6 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == "12\n"
+        installation("build/install/main").exec().out == "12\n"
     }
 }

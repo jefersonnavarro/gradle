@@ -16,47 +16,36 @@
 
 package org.gradle.api.internal.artifacts.ivyservice.resolveengine;
 
-import org.apache.ivy.core.module.descriptor.DependencyDescriptor;
-import org.apache.ivy.core.module.descriptor.ModuleDescriptor;
-import org.gradle.internal.component.model.ComponentResolveMetaData;
-import org.gradle.internal.component.model.ConfigurationMetaData;
-import org.gradle.internal.component.model.DependencyMetaData;
+import org.gradle.internal.component.model.ComponentResolveMetadata;
+import org.gradle.internal.component.model.ConfigurationMetadata;
+import org.gradle.internal.component.model.DependencyMetadata;
 
 import java.util.Collection;
-import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
 public class DefaultDependencyToConfigurationResolver implements DependencyToConfigurationResolver {
     // TODO - don't pass in 'from' configuration - the dependency should have whatever context it needs
-    public Set<ConfigurationMetaData> resolveTargetConfigurations(DependencyMetaData dependencyMetaData, ConfigurationMetaData fromConfiguration, ComponentResolveMetaData targetComponent) {
+    public Set<ConfigurationMetadata> resolveTargetConfigurations(DependencyMetadata dependencyMetadata, ConfigurationMetadata fromConfiguration, ComponentResolveMetadata targetComponent) {
         // TODO - resolve directly to config meta data
-        ModuleDescriptor targetDescriptor = targetComponent.getDescriptor();
-        DependencyDescriptor dependencyDescriptor = dependencyMetaData.getDescriptor();
         Set<String> targetConfigurationNames = new LinkedHashSet<String>();
-        for (String config : dependencyDescriptor.getModuleConfigurations()) {
+        for (String config : dependencyMetadata.getModuleConfigurations()) {
             if (config.equals("*") || config.equals("%")) {
-                collectTargetConfiguration(dependencyDescriptor, fromConfiguration, fromConfiguration.getName(), targetDescriptor, targetConfigurationNames);
+                collectTargetConfiguration(dependencyMetadata, fromConfiguration, fromConfiguration.getName(), targetComponent, targetConfigurationNames);
             } else if (fromConfiguration.getHierarchy().contains(config)) {
-                collectTargetConfiguration(dependencyDescriptor, fromConfiguration, config, targetDescriptor, targetConfigurationNames);
+                collectTargetConfiguration(dependencyMetadata, fromConfiguration, config, targetComponent, targetConfigurationNames);
             }
         }
 
-        Set<ConfigurationMetaData> targets = new LinkedHashSet<ConfigurationMetaData>();
+        Set<ConfigurationMetadata> targets = new LinkedHashSet<ConfigurationMetadata>();
         for (String targetConfigurationName : targetConfigurationNames) {
-            // TODO - move this down below
-            if (targetDescriptor.getConfiguration(targetConfigurationName) == null) {
-                throw new RuntimeException(String.format("Module version %s, configuration '%s' declares a dependency on configuration '%s' which is not declared in the module descriptor for %s",
-                        fromConfiguration.getComponent().getId(), fromConfiguration.getName(),
-                        targetConfigurationName, targetComponent.getId()));
-            }
-            ConfigurationMetaData targetConfiguration = targetComponent.getConfiguration(targetConfigurationName);
+            ConfigurationMetadata targetConfiguration = targetComponent.getConfiguration(targetConfigurationName);
             targets.add(targetConfiguration);
         }
         return targets;
     }
 
-    private void collectTargetConfiguration(DependencyDescriptor dependencyDescriptor, ConfigurationMetaData fromConfiguration, String mappingRhs, ModuleDescriptor targetModule, Collection<String> targetConfigs) {
+    private void collectTargetConfiguration(DependencyMetadata dependencyDescriptor, ConfigurationMetadata fromConfiguration, String mappingRhs, ComponentResolveMetadata targetModule, Collection<String> targetConfigs) {
         String[] dependencyConfigurations = dependencyDescriptor.getDependencyConfigurations(mappingRhs, fromConfiguration.getName());
         for (String target : dependencyConfigurations) {
             String candidate = target;
@@ -72,10 +61,20 @@ public class DefaultDependencyToConfigurationResolver implements DependencyToCon
                 }
             }
             if (candidate.equals("*")) {
-                Collections.addAll(targetConfigs, targetModule.getPublicConfigurationsNames());
+                for (String configName : targetModule.getConfigurationNames()) {
+                    if (targetModule.getConfiguration(configName).isVisible()) {
+                        targetConfigs.add(configName);
+                    }
+                }
                 continue;
             }
-            targetConfigs.add(candidate);
+            if (targetModule.getConfiguration(candidate) != null) {
+                targetConfigs.add(candidate);
+                continue;
+            }
+            throw new RuntimeException(String.format("Module version %s, configuration '%s' declares a dependency on configuration '%s' which is not declared in the module descriptor for %s",
+                    fromConfiguration.getComponent().getId(), fromConfiguration.getName(),
+                    target, targetModule.getId()));
         }
     }
 }

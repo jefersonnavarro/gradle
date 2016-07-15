@@ -43,7 +43,7 @@ public class JavadocTest extends Specification {
     def generator = Mock(Compiler);
     def configurationMock = new SimpleFileCollection(classpath);
     def executable = "somepath";
-    private Javadoc task = TestUtil.createTask(Javadoc)
+    private Javadoc task = TestUtil.create(tmpDir).task(Javadoc)
 
     public void setup() {
         task.setClasspath(configurationMock);
@@ -61,7 +61,7 @@ public class JavadocTest extends Specification {
         task.execute();
 
         then:
-        1 * toolChain.select(null) >> toolProvider
+        1 * toolChain.select(_) >> toolProvider
         1 * toolProvider.newCompiler(!null) >> generator
         1 * generator.execute(_)
     }
@@ -77,7 +77,7 @@ public class JavadocTest extends Specification {
         task.execute()
 
         then:
-        1 * toolChain.select(null) >> toolProvider
+        1 * toolChain.select(_) >> toolProvider
         1 * toolProvider.newCompiler(!null) >> generator
         1 * generator.execute(_)
     }
@@ -91,7 +91,7 @@ public class JavadocTest extends Specification {
         task.execute();
 
         then:
-        1 * toolChain.select(null) >> toolProvider
+        1 * toolChain.select(_) >> toolProvider
         1 * toolProvider.newCompiler(!null) >> generator
         1 * generator.execute(_)
 

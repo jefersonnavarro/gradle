@@ -15,17 +15,19 @@
  */
 package org.gradle.api.internal.artifacts.ivyservice.ivyresolve.parser;
 
+import com.google.common.collect.Lists;
+import org.apache.commons.io.IOUtils;
 import org.apache.ivy.core.IvyPatternHelper;
-import org.apache.ivy.core.module.descriptor.License;
-import org.apache.ivy.core.module.id.ModuleId;
-import org.apache.ivy.core.module.id.ModuleRevisionId;
-import org.apache.ivy.util.XMLHelper;
 import org.gradle.api.Transformer;
-import org.gradle.api.internal.artifacts.ivyservice.IvyUtil;
+import org.gradle.api.artifacts.ModuleIdentifier;
+import org.gradle.api.artifacts.ModuleVersionIdentifier;
+import org.gradle.api.internal.artifacts.DefaultModuleIdentifier;
+import org.gradle.api.internal.artifacts.DefaultModuleVersionIdentifier;
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.parser.data.MavenDependencyKey;
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.parser.data.PomDependencyMgt;
 import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.parser.data.PomProfile;
-import org.gradle.internal.resource.LocallyAvailableExternalResource;
+import org.gradle.internal.UncheckedException;
+import org.gradle.internal.resource.local.LocallyAvailableExternalResource;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -36,9 +38,17 @@ import org.xml.sax.SAXException;
 import org.xml.sax.SAXParseException;
 
 import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 import static org.gradle.api.internal.artifacts.ivyservice.ivyresolve.parser.PomDomParser.*;
 
@@ -57,11 +67,6 @@ public class PomReader implements PomParent {
     private static final String ARTIFACT_ID = "artifactId";
     private static final String VERSION = "version";
     private static final String DESCRIPTION = "description";
-    private static final String HOMEPAGE = "url";
-    private static final String LICENSES = "licenses";
-    private static final String LICENSE = "license";
-    private static final String LICENSE_NAME = "name";
-    private static final String LICENSE_URL = "url";
     private static final String PARENT = "parent";
     private static final String SCOPE = "scope";
     private static final String CLASSIFIER = "classifier";
@@ -78,6 +83,39 @@ public class PomReader implements PomParent {
     private static final String PROFILE_ACTIVATION = "activation";
     private static final String PROFILE_ACTIVATION_ACTIVE_BY_DEFAULT = "activeByDefault";
     private static final String PROFILE_ACTIVATION_PROPERTY = "property";
+    private static final byte[] M2_ENTITIES_RESOURCE;
+    private static final DocumentBuilderFactory DOCUMENT_BUILDER_FACTORY;
+
+    static {
+        byte[] bytes;
+        try {
+            bytes = IOUtils.toByteArray(org.apache.ivy.plugins.parser.m2.PomReader.class.getResourceAsStream("m2-entities.ent"));
+        } catch (IOException e) {
+            throw UncheckedException.throwAsUncheckedException(e);
+        }
+        M2_ENTITIES_RESOURCE = bytes;
+
+        // Set the context classloader the bootstrap classloader, to work around the way that JAXP locates implementation classes
+        // This should ensure that the JAXP classes provided by the JVM are used, rather than some other implementation
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader().getParent());
+        try {
+            DOCUMENT_BUILDER_FACTORY = DocumentBuilderFactory.newInstance();
+            DOCUMENT_BUILDER_FACTORY.setValidating(false);
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
+    }
+
+    private static final EntityResolver M2_ENTITY_RESOLVER = new EntityResolver() {
+        public InputSource resolveEntity(String publicId, String systemId)
+            throws SAXException, IOException {
+            if ((systemId != null) && systemId.endsWith("m2-entities.ent")) {
+                return new InputSource(new ByteArrayInputStream(M2_ENTITIES_RESOURCE));
+            }
+            return null;
+        }
+    };
 
     private PomParent pomParent = new RootPomParent();
     private final Map<String, String> properties = new HashMap<String, String>();
@@ -90,7 +128,7 @@ public class PomReader implements PomParent {
     private final Element projectElement;
     private final Element parentElement;
 
-    public PomReader(final LocallyAvailableExternalResource resource) throws IOException, SAXException {
+    public PomReader(final LocallyAvailableExternalResource resource) throws SAXException {
         final String systemId = resource.getLocalResource().getFile().toURI().toASCIIString();
         Document pomDomDoc = resource.withContent(new Transformer<Document, InputStream>() {
             public Document transform(InputStream inputStream) {
@@ -112,22 +150,21 @@ public class PomReader implements PomParent {
         setActiveProfileProperties();
     }
 
-    public void setPomParent(PomParent pomParent) {
-        this.pomParent = pomParent;
-        setPomParentProperties();
+    private void setDefaultParentGavProperties() {
+        maybeSetGavProperties(GavProperty.PARENT_GROUP_ID, getParentGroupId());
+        maybeSetGavProperties(GavProperty.PARENT_VERSION, getParentVersion());
+        maybeSetGavProperties(GavProperty.PARENT_ARTIFACT_ID, getParentArtifactId());
     }
 
-    private void setPomParentProperties() {
-        Map<String, String> parentPomProps = pomParent.getProperties();
-
-        for(Map.Entry<String, String> entry : parentPomProps.entrySet()) {
-            setProperty(entry.getKey(), entry.getValue());
+    private void maybeSetGavProperties(GavProperty gavProperty, String propertyValue) {
+        for(String name : gavProperty.getNames()) {
+            maybeSetProperty(name, propertyValue);
         }
     }
 
     private void setPomProperties() {
         for(Map.Entry<String, String> pomProperty : getPomProperties().entrySet()) {
-            setProperty(pomProperty.getKey(), pomProperty.getValue());
+            maybeSetProperty(pomProperty.getKey(), pomProperty.getValue());
         }
     }
 
@@ -142,27 +179,40 @@ public class PomReader implements PomParent {
         }
     }
 
-    private void setDefaultParentGavProperties() {
-        setGavPropertyValueWithoutReplacement(GavProperty.PARENT_GROUP_ID, getParentGroupId());
-        setGavPropertyValueWithoutReplacement(GavProperty.PARENT_VERSION, getParentVersion());
+    public void setPomParent(PomParent pomParent) {
+        this.pomParent = pomParent;
+        setPomParentProperties();
     }
 
-    private void setGavPropertyValueWithoutReplacement(GavProperty gavProperty, String propertyValue) {
-        for(String name : gavProperty.getNames()) {
-            setProperty(name, propertyValue);
+    private void setPomParentProperties() {
+        Map<String, String> parentPomProps = pomParent.getProperties();
+        for(Map.Entry<String, String> entry : parentPomProps.entrySet()) {
+            maybeSetProperty(entry.getKey(), entry.getValue());
+        }
+    }
+
+    /**
+     * Add a property if not yet set and value is not null.
+     * This guarantee that property keep the first value that is put on it and that the properties
+     * are never null.
+     */
+    private void maybeSetProperty(String prop, String val) {
+        if (!properties.containsKey(prop) && val != null) {
+            properties.put(prop, val);
         }
     }
 
     private enum GavProperty {
-        PARENT_VERSION("parent.version", "project.parent.version"),
         PARENT_GROUP_ID("parent.groupId", "project.parent.groupId"),
+        PARENT_ARTIFACT_ID("parent.artifactId", "project.parent.artifactId"),
+        PARENT_VERSION("parent.version", "project.parent.version"),
         GROUP_ID("project.groupId", "pom.groupId", "groupId"),
         ARTIFACT_ID("project.artifactId", "pom.artifactId", "artifactId"),
         VERSION("project.version", "pom.version", "version");
 
         private final String[] names;
 
-        private GavProperty(String... names) {
+        GavProperty(String... names) {
             this.names = names;
         }
 
@@ -176,34 +226,33 @@ public class PomReader implements PomParent {
         return projectElement.getOwnerDocument().getDocumentURI();
     }
 
-    public static Document parseToDom(InputStream stream, String systemId) throws IOException, SAXException {
-        EntityResolver entityResolver = new EntityResolver() {
-            public InputSource resolveEntity(String publicId, String systemId)
-                    throws SAXException, IOException {
-                if ((systemId != null) && systemId.endsWith("m2-entities.ent")) {
-                    return new InputSource(org.apache.ivy.plugins.parser.m2.PomReader.class.getResourceAsStream("m2-entities.ent"));
-                }
-                return null;
+    private static DocumentBuilder getDocBuilder(EntityResolver entityResolver) {
+        try {
+            DocumentBuilder docBuilder = DOCUMENT_BUILDER_FACTORY.newDocumentBuilder();
+            if (entityResolver != null) {
+                docBuilder.setEntityResolver(entityResolver);
             }
-        };
-        InputStream dtdStream = new AddDTDFilterInputStream(stream);
-        DocumentBuilder docBuilder = XMLHelper.getDocBuilder(entityResolver);
-        return docBuilder.parse(dtdStream, systemId);
+            return docBuilder;
+        } catch (ParserConfigurationException e) {
+            throw UncheckedException.throwAsUncheckedException(e);
+        }
+    }
+
+    private static Document parseToDom(InputStream stream, String systemId) throws IOException, SAXException {
+        // Set the context classloader the bootstrap classloader, to work around the way that JAXP locates implementation classes
+        // This should ensure that the JAXP classes provided by the JVM are used, rather than some other implementation
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader().getParent());
+        try {
+            InputStream dtdStream = new AddDTDFilterInputStream(stream);
+            return getDocBuilder(M2_ENTITY_RESOLVER).parse(dtdStream, systemId);
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
     }
 
     public boolean hasParent() {
         return parentElement != null;
-    }
-
-    /**
-     * Add a property if not yet set and value is not null.
-     * This guarantee that property keep the first value that is put on it and that the properties
-     * are never null.
-     */
-    public void setProperty(String prop, String val) {
-        if (!properties.containsKey(prop) && val != null) {
-            properties.put(prop, val);
-        }
     }
 
     public Map<String, String> getProperties() {
@@ -274,14 +323,6 @@ public class PomReader implements PomParent {
         return replaceProps(val);
     }
 
-    public String getHomePage() {
-        String val = getFirstChildText(projectElement, HOMEPAGE);
-        if (val == null) {
-            val = "";
-        }
-        return val;
-    }
-
     public String getDescription() {
         String val = getFirstChildText(projectElement, DESCRIPTION);
         if (val == null) {
@@ -290,35 +331,7 @@ public class PomReader implements PomParent {
         return val.trim();
     }
 
-    public List<License> getLicenses() {
-        Element licenses = getFirstChildElement(projectElement, LICENSES);
-        if (licenses == null) {
-            return Collections.emptyList();
-        }
-        licenses.normalize();
-        List<License> lics = new ArrayList<License>();
-        for (Element license : getAllChilds(licenses)) {
-            if (LICENSE.equals(license.getNodeName())) {
-                String name = getFirstChildText(license, LICENSE_NAME);
-                String url = getFirstChildText(license, LICENSE_URL);
-
-                if ((name == null) && (url == null)) {
-                    // move to next license
-                    continue;
-                }
-
-                if (name == null) {
-                    // The license name is required in Ivy but not in a POM!
-                    name = "Unknown License";
-                }
-
-                lics.add(new License(name, url));
-            }
-        }
-        return lics;
-    }
-
-    public ModuleRevisionId getRelocation() {
+    public ModuleVersionIdentifier getRelocation() {
         Element distrMgt = getFirstChildElement(projectElement, DISTRIBUTION_MGT);
         Element relocation = getFirstChildElement(distrMgt , RELOCATION);
         if (relocation == null) {
@@ -330,7 +343,7 @@ public class PomReader implements PomParent {
             relocGroupId = relocGroupId == null ? getGroupId() : relocGroupId;
             relocArtId = relocArtId == null ? getArtifactId() : relocArtId;
             relocVersion = relocVersion == null ? getVersion() : relocVersion;
-            return IvyUtil.createModuleRevisionId(relocGroupId, relocArtId, relocVersion);
+            return DefaultModuleVersionIdentifier.newId(relocGroupId, relocArtId, relocVersion);
         }
     }
 
@@ -514,23 +527,24 @@ public class PomReader implements PomParent {
             return replaceProps(val);
         }
 
-        public List<ModuleId> getExcludedModules() {
+        public List<ModuleIdentifier> getExcludedModules() {
             Element exclusionsElement = getFirstChildElement(depElement, EXCLUSIONS);
-            List<ModuleId> exclusions = new LinkedList<ModuleId>();
             if (exclusionsElement != null) {
                 NodeList childs = exclusionsElement.getChildNodes();
+                List<ModuleIdentifier> exclusions = Lists.newArrayList();
                 for (int i = 0; i < childs.getLength(); i++) {
                     Node node = childs.item(i);
                     if (node instanceof Element && EXCLUSION.equals(node.getNodeName())) {
                         String groupId = getFirstChildText((Element) node, GROUP_ID);
                         String artifactId = getFirstChildText((Element) node, ARTIFACT_ID);
                         if ((groupId != null) && (artifactId != null)) {
-                            exclusions.add(IvyUtil.createModuleId(groupId, artifactId));
+                            exclusions.add(DefaultModuleIdentifier.newId(groupId, artifactId));
                         }
                     }
                 }
+                return exclusions;
             }
-            return exclusions;
+            return Collections.emptyList();
         }
     }
 

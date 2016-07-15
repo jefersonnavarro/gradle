@@ -18,6 +18,7 @@ package org.gradle.play.tasks
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.test.fixtures.archive.ZipTestFixture
+import static org.gradle.play.integtest.fixtures.Repositories.*
 
 class DistributionZipIntegrationTest extends AbstractIntegrationSpec {
     def setup() {
@@ -27,13 +28,7 @@ class DistributionZipIntegrationTest extends AbstractIntegrationSpec {
                 id 'play'
             }
 
-            repositories {
-                jcenter()
-                maven{
-                    name = "typesafe-maven-release"
-                    url = "https://repo.typesafe.com/typesafe/maven-releases"
-                }
-            }
+            ${PLAY_REPOSITORIES}
         """
     }
 
@@ -58,71 +53,21 @@ class DistributionZipIntegrationTest extends AbstractIntegrationSpec {
         zip("build/distributions/playBinary.zip").containsDescendants("playBinary/additionalFile.txt")
     }
 
-    def "can add an additional arbitrary distribution" () {
+    def "cannot add arbitrary distribution" () {
         buildFile << """
             model {
                 distributions {
-                    myDist {
-                        baseName = "mySpecialDist"
-                        contents {
-                            binary = binaries.playBinary
-                            into("txt") {
-                                from "additionalFile.txt"
-                            }
-                        }
-                    }
+                    myDist { }
                 }
             }
         """
-        file("additionalFile.txt").createFile()
 
         when:
-        succeeds "stage"
+        fails "dist"
 
         then:
-        file("build/stage/mySpecialDist").assertContainsDescendants(
-                "lib/dist-play-app.jar",
-                "lib/dist-play-app-assets.jar",
-                "txt/additionalFile.txt"
-        )
-
-        when:
-        succeeds "dist"
-
-        then:
-        executedAndNotSkipped(
-                ":createMyDistDist")
-
-        and:
-        zip("build/distributions/mySpecialDist.zip").containsDescendants(
-                "mySpecialDist/lib/dist-play-app.jar",
-                "mySpecialDist/lib/dist-play-app-assets.jar",
-                "mySpecialDist/txt/additionalFile.txt")
-    }
-
-    def "produces sensible error when distribution has no binary" () {
-        buildFile << """
-            model {
-                distributions {
-                    myDist {
-                        baseName = "mySpecialDist"
-                        contents {
-                            into("txt") {
-                                from "additionalFile.txt"
-                            }
-                        }
-                    }
-                }
-            }
-        """
-        file("additionalFile.txt").createFile()
-
-        when:
-        fails "stage"
-
-        then:
-        failureDescriptionContains("A problem occurred configuring root project 'dist-play-app'.")
-        failureHasCause("Play Distribution 'myDist' does not have a configured Play binary.")
+        failureDescriptionContains("A problem occurred configuring root project 'dist-play-app'")
+        failureHasCause("Cannot create a Distribution named 'myDist' because this container does not support creating elements by name alone.")
     }
 
     ZipTestFixture zip(String path) {

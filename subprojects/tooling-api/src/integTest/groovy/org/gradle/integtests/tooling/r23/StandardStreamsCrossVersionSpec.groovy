@@ -18,33 +18,28 @@ package org.gradle.integtests.tooling.r23
 
 import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.TestOutputStream
-import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
+import org.gradle.integtests.tooling.fixture.ToolingApiLoggingSpecification
 import org.gradle.integtests.tooling.fixture.ToolingApiVersion
 import org.gradle.tooling.ProjectConnection
 import org.gradle.util.RedirectStdOutAndErr
 import org.junit.Rule
 
-class StandardStreamsCrossVersionSpec extends ToolingApiSpecification {
+class StandardStreamsCrossVersionSpec extends ToolingApiLoggingSpecification {
     @Rule RedirectStdOutAndErr stdOutAndErr = new RedirectStdOutAndErr()
     def escapeHeader = "\u001b["
 
-    def setup() {
-        toolingApi.requireDaemons()
-    }
-
     @TargetGradleVersion(">=2.3")
     def "logging is not sent to System.out or System.err"() {
-        String uuid = UUID.randomUUID().toString()
         file("build.gradle") << """
-project.logger.error("error logging-${uuid}");
-project.logger.warn("warn logging-${uuid}");
-project.logger.lifecycle("lifecycle logging-${uuid}");
-project.logger.quiet("quiet logging-${uuid}");
-project.logger.info ("info logging-${uuid}");
-project.logger.debug("debug logging-${uuid}");
+project.logger.error("error log message");
+project.logger.warn("warn log message");
+project.logger.lifecycle("lifecycle log message");
+project.logger.quiet("quiet log message");
+project.logger.info ("info log message");
+project.logger.debug("debug log message");
 
 task log << {
-    println "task logging-${uuid}"
+    println "task log message"
 }
 """
 
@@ -56,23 +51,22 @@ task log << {
         }
 
         then:
-        !stdOutAndErr.stdOut.contains(uuid)
-        !stdOutAndErr.stdErr.contains(uuid)
+        !stdOutAndErr.stdOut.contains("log message")
+        !stdOutAndErr.stdErr.contains("log message")
     }
 
     @TargetGradleVersion(">=2.3")
     def "logging is not sent to System.out or System.err when using custom output streams"() {
-        String uuid = UUID.randomUUID().toString()
         file("build.gradle") << """
-project.logger.error("error logging-${uuid}");
-project.logger.warn("warn logging-${uuid}");
-project.logger.lifecycle("lifecycle logging-${uuid}");
-project.logger.quiet("quiet logging-${uuid}");
-project.logger.info ("info logging-${uuid}");
-project.logger.debug("debug logging-${uuid}");
+project.logger.error("error logging");
+project.logger.warn("warn logging");
+project.logger.lifecycle("lifecycle logging");
+project.logger.quiet("quiet logging");
+project.logger.info ("info logging");
+project.logger.debug("debug logging");
 
 task log << {
-    println "task logging-${uuid}"
+    println "task logging"
 }
 """
 
@@ -88,15 +82,15 @@ task log << {
         }
 
         then:
-        output.toString().contains("task logging-" + uuid)
-        output.toString().contains("warn logging-${uuid}")
-        output.toString().contains("lifecycle logging-${uuid}")
-        output.toString().contains("quiet logging-${uuid}")
-        error.toString().contains("error logging-${uuid}")
+        output.toString().contains("task logging")
+        output.toString().contains("warn logging")
+        output.toString().contains("lifecycle logging")
+        output.toString().contains("quiet logging")
+        error.toString().contains("error logging")
 
         and:
-        !stdOutAndErr.stdOut.contains(uuid)
-        !stdOutAndErr.stdErr.contains(uuid)
+        !stdOutAndErr.stdOut.contains("logging")
+        !stdOutAndErr.stdErr.contains("logging")
     }
 
     @ToolingApiVersion(">=2.3")
@@ -127,7 +121,7 @@ task log {
     }
 
     @ToolingApiVersion(">=2.3")
-    @TargetGradleVersion(">=1.0-milestone-8 <2.3")
+    @TargetGradleVersion(">=1.2 <2.3")
     def "can specify color output when target version does not support colored output"() {
         file("build.gradle") << """
 task log {

@@ -32,12 +32,20 @@ import org.gradle.model.RuleSource;
 
 import java.lang.ref.Reference;
 import java.lang.ref.WeakReference;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.concurrent.ExecutionException;
 
 @ThreadSafe
 public class ModelRuleSourceDetector {
+
+    private static final Comparator<Class<?>> COMPARE_BY_CLASS_NAME = new Comparator<Class<?>>() {
+        public int compare(Class<?> left, Class<?> right) {
+            return left.getName().compareTo(right.getName());
+        }
+    };
 
     final LoadingCache<Class<?>, Collection<Reference<Class<? extends RuleSource>>>> cache = CacheBuilder.newBuilder()
             .weakKeys()
@@ -48,12 +56,18 @@ public class ModelRuleSourceDetector {
                         Class<? extends RuleSource> castClass = Cast.uncheckedCast(container);
                         return ImmutableSet.<Reference<Class<? extends RuleSource>>>of(new WeakReference<Class<? extends RuleSource>>(castClass));
                     }
+
                     Class<?>[] declaredClasses = container.getDeclaredClasses();
+
                     if (declaredClasses.length == 0) {
                         return Collections.emptySet();
                     } else {
+                        Class<?>[] sortedDeclaredClasses = new Class<?>[declaredClasses.length];
+                        System.arraycopy(declaredClasses, 0, sortedDeclaredClasses, 0, declaredClasses.length);
+                        Arrays.sort(sortedDeclaredClasses, COMPARE_BY_CLASS_NAME);
+
                         ImmutableList.Builder<Reference<Class<? extends RuleSource>>> found = ImmutableList.builder();
-                        for (Class<?> declaredClass : declaredClasses) {
+                        for (Class<?> declaredClass : sortedDeclaredClasses) {
                             if (isRuleSource(declaredClass)) {
                                 Class<? extends RuleSource> castClass = Cast.uncheckedCast(declaredClass);
                                 found.add(new WeakReference<Class<? extends RuleSource>>(castClass));

@@ -18,10 +18,13 @@ package org.gradle.api.internal.file.copy
 import org.apache.tools.ant.filters.HeadFilter
 import org.apache.tools.ant.filters.StripJavaComments
 import org.gradle.api.Action
+import org.gradle.api.InvalidUserDataException
+import org.gradle.api.Transformer
 import org.gradle.api.file.CopySpec
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.file.RelativePath
 import org.gradle.api.internal.file.FileResolver
+import org.gradle.api.internal.file.TestFiles
 import org.gradle.api.specs.Spec
 import org.gradle.internal.Actions
 import org.gradle.internal.reflect.DirectInstantiator
@@ -34,6 +37,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
+import java.nio.charset.Charset
+
 import static org.hamcrest.Matchers.*
 import static org.junit.Assert.*
 
@@ -44,8 +49,8 @@ public class DefaultCopySpecTest {
     public TestNameTestDirectoryProvider testDir = new TestNameTestDirectoryProvider();
     private TestFile baseFile = testDir.testDirectory
     private final JUnit4GroovyMockery context = new JUnit4GroovyMockery();
-    private final FileResolver fileResolver = context.mock(FileResolver);
-    private final Instantiator instantiator = new DirectInstantiator()
+    private final FileResolver fileResolver = [resolve: { it as File }, getPatternSetFactory: { TestFiles.getPatternSetFactory() }] as FileResolver
+    private final Instantiator instantiator = DirectInstantiator.INSTANCE
     private final DefaultCopySpec spec = new DefaultCopySpec(fileResolver, instantiator)
 
     private List<String> getTestSourceFileNames() {
@@ -126,6 +131,35 @@ public class DefaultCopySpecTest {
 
         assertThat(child, not(sameInstance(spec as CopySpec)))
         assertThat(unpackWrapper(child).buildRootResolver().destPath, equalTo(new RelativePath(false, 'target')))
+    }
+
+    @Test
+    public void testDestinationWithAction() {
+        CopySpec child = spec.into('target', new Action<CopySpec>() {
+            @Override
+            void execute(CopySpec copySpec) {
+            }
+        })
+        assertThat(child, not(sameInstance(spec as CopySpec)))
+        assertThat(unpackWrapper(child).buildRootResolver().destPath, equalTo(new RelativePath(false, 'target')))
+    }
+
+
+    @Test
+    public void testFilterWithClosure() {
+        spec.filter { it.length() > 10 ? null : it }
+        assert spec.copyActions.size() == 1
+    }
+
+    @Test
+    public void testFilterWithFunction() {
+        spec.filter(new Transformer<String, String>() {
+            @Override
+            String transform(String input) {
+                input.length() > 10 ? null : input
+            }
+        })
+        assert spec.copyActions.size() == 1
     }
 
     @Test
@@ -317,19 +351,21 @@ public class DefaultCopySpecTest {
         assert spec.duplicatesStrategy == DuplicatesStrategy.INCLUDE
         assert spec.fileMode == null
         assert spec.dirMode == null
+        assert spec.filteringCharset == Charset.defaultCharset().name()
 
         spec.caseSensitive = false
         spec.includeEmptyDirs = false
         spec.duplicatesStrategy = DuplicatesStrategy.EXCLUDE
         spec.fileMode = 1
         spec.dirMode = 2
+        spec.filteringCharset = "UTF8"
 
         assert spec.caseSensitive == false;
         assert spec.getIncludeEmptyDirs() == false;
         assert spec.duplicatesStrategy == DuplicatesStrategy.EXCLUDE
         assert spec.fileMode == 1
         assert spec.dirMode == 2
-
+        assert spec.filteringCharset == "UTF8"
 
     }
 
@@ -342,18 +378,19 @@ public class DefaultCopySpecTest {
         spec.duplicatesStrategy = DuplicatesStrategy.EXCLUDE
         spec.fileMode = 1
         spec.dirMode = 2
+        spec.filteringCharset = "ISO_8859_1"
 
         DefaultCopySpec child = unpackWrapper(spec.from("child") {
 
         })
 
-        //children still have defaults
+        //children still have these non defaults
         assert child.caseSensitive == false;
         assert child.getIncludeEmptyDirs() == false;
         assert child.duplicatesStrategy == DuplicatesStrategy.EXCLUDE
         assert child.fileMode == 1
         assert child.dirMode == 2
-
+        assert child.filteringCharset == "ISO_8859_1"
     }
 
     @Test
@@ -365,20 +402,30 @@ public class DefaultCopySpecTest {
         spec.duplicatesStrategy = DuplicatesStrategy.EXCLUDE
         spec.fileMode = 1
         spec.dirMode = 2
+        spec.filteringCharset = "ISO_8859_1"
 
         DefaultCopySpec child = unpackWrapper(spec.into("child") {
 
         })
 
-        //children still have defaults
+        //children still have these non defaults
         assert child.caseSensitive == false;
         assert child.getIncludeEmptyDirs() == false;
         assert child.duplicatesStrategy == DuplicatesStrategy.EXCLUDE
         assert child.fileMode == 1
         assert child.dirMode == 2
-
+        assert child.filteringCharset == "ISO_8859_1"
     }
 
+    @Test(expected = InvalidUserDataException.class)
+    void "setting the filteringCharset to null throws an exception"() {
+        spec.filteringCharset = null
+    }
+
+    @Test(expected = InvalidUserDataException.class)
+    void "setting the filteringCharset to an unsupported charset throws an exception"() {
+        spec.filteringCharset = "THAT_SURE_IS_AN_INVALID_CHARSET"
+    }
 
     DefaultCopySpec unpackWrapper(CopySpec copySpec) {
         (copySpec as CopySpecWrapper).delegate as DefaultCopySpec

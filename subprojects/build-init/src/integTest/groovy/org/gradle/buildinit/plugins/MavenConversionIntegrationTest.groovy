@@ -15,22 +15,18 @@
  */
 
 package org.gradle.buildinit.plugins
-
 import org.gradle.buildinit.plugins.fixtures.WrapperTestFixture
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.DefaultTestExecutionResult
 import org.gradle.integtests.fixtures.TestResources
 import org.gradle.test.fixtures.file.TestFile
-import org.gradle.test.fixtures.maven.M2Installation
+import org.gradle.test.fixtures.server.http.HttpServer
 import org.gradle.test.fixtures.server.http.MavenHttpModule
 import org.gradle.test.fixtures.server.http.MavenHttpRepository
 import org.gradle.test.fixtures.server.http.PomHttpArtifact
-import org.gradle.test.fixtures.server.http.HttpServer
 import org.gradle.util.SetSystemProperties
 import org.junit.Rule
 import spock.lang.Issue
-
-import static org.gradle.util.TextUtil.toPlatformLineSeparators
 
 class MavenConversionIntegrationTest extends AbstractIntegrationSpec {
 
@@ -44,7 +40,13 @@ class MavenConversionIntegrationTest extends AbstractIntegrationSpec {
     public final HttpServer server = new HttpServer()
 
     def setup() {
-        withLocalM2Installation()
+        /**
+         * We need to configure the local maven repository explicitly as
+         * RepositorySystem.defaultUserLocalRepository is statically initialised and used when
+         * creating multiple ProjectBuildingRequest.
+         * */
+        m2.generateUserSettingsFile(m2.mavenRepo())
+        using m2
     }
 
     def "multiModule"() {
@@ -68,12 +70,12 @@ class MavenConversionIntegrationTest extends AbstractIntegrationSpec {
         run 'projects'
 
         then:
-        output.contains(toPlatformLineSeparators("""
+        output.contains """
 Root project 'webinar-parent'
 +--- Project ':webinar-api' - Webinar APIs
 +--- Project ':webinar-impl' - Webinar implementation
 \\--- Project ':webinar-war' - Webinar web application
-"""))
+"""
     }
 
     def "multiModuleWithNestedParent"() {
@@ -118,16 +120,37 @@ Root project 'webinar-parent'
         run 'projects'
 
         then:
-        output.contains(toPlatformLineSeparators("""
+        output.contains """
 Root project 'webinar-parent'
 +--- Project ':webinar-api' - Webinar APIs
 +--- Project ':webinar-impl' - Webinar implementation
 \\--- Project ':webinar-war' - Webinar web application
-"""))
+"""
     }
 
     def "singleModule"() {
         when:
+        executer.withArgument("-d")
+        run 'init'
+
+        then:
+        gradleFilesGenerated()
+
+        when:
+        //TODO this build should fail because the TestNG test is failing
+        //however the plugin does not generate testNG for single module project atm (bug)
+        //def failure = runAndFail('clean', 'build')  //assert if fails for the right reason
+        run 'clean', 'build'
+        then:
+        file("build/libs/util-2.5.jar").exists()
+    }
+
+    def "singleModule with explicit project dir"() {
+        setup:
+        resources.maybeCopy('MavenConversionIntegrationTest/singleModule')
+        def workingDir = temporaryFolder.createDir("workingDir")
+        when:
+        executer.inDirectory(workingDir).usingProjectDirectory(file('.'))
         run 'init'
 
         then:
@@ -276,7 +299,10 @@ it.exclude group: '*', module: 'badArtifact'
 
         when:
         libRequest(repo, "commons-lang", "commons-lang", 2.6)
+        // Required for the 'webinar-impl' project's POM
         libRequest(repo, "junit", "junit", 4.10)
+        // Required for the 'webinar-war' project's POM
+        libRequest(repo, "junit", "junit", "3.8.1")
         libRequest(repo, "org.hamcrest", "hamcrest-core", 1.1)
 
         run 'clean', 'build'
@@ -292,13 +318,13 @@ it.exclude group: '*', module: 'badArtifact'
         run 'projects'
 
         then:
-        output.contains(toPlatformLineSeparators("""
+        output.contains """
 Root project 'webinar-parent'
 +--- Project ':util-parent'
 +--- Project ':webinar-api' - Webinar APIs
 +--- Project ':webinar-impl' - Webinar implementation
 \\--- Project ':webinar-war' - Webinar web application
-"""))
+"""
     }
 
     void gradleFilesGenerated(TestFile parentFolder = file(".")) {
@@ -319,13 +345,6 @@ Root project 'webinar-parent'
 
     def withSharedResources() {
         resources.maybeCopy('MavenConversionIntegrationTest/sharedResources')
-    }
-
-    M2Installation withLocalM2Installation() {
-        M2Installation m2Installation = new M2Installation(testDirectory)
-        m2Installation.generateUserSettingsFile(mavenLocal("local_m2"))
-        using m2Installation
-        m2Installation
     }
 
     PomHttpArtifact expectParentPomRequest(MavenHttpRepository repo) {

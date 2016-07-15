@@ -16,22 +16,25 @@
 
 package org.gradle.api.publish.ivy
 
-import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.executer.ProgressLoggingFixture
 import org.gradle.internal.jvm.Jvm
 import org.gradle.test.fixtures.file.TestFile
+import org.gradle.test.fixtures.server.http.HttpServer
 import org.gradle.test.fixtures.server.http.IvyHttpModule
 import org.gradle.test.fixtures.server.http.IvyHttpRepository
-import org.gradle.test.fixtures.server.http.HttpServer
 import org.gradle.util.GradleVersion
+import org.gradle.util.Requires
 import org.hamcrest.Matchers
 import org.junit.Rule
 import org.mortbay.jetty.HttpStatus
+import spock.lang.Issue
 import spock.lang.Unroll
 
 import static org.gradle.test.matchers.UserAgentMatcher.matchesNameAndVersion
+import static org.gradle.util.Matchers.matchesRegexp
+import static org.gradle.util.TestPrecondition.FIX_TO_WORK_ON_JAVA9
 
-public class IvyPublishHttpIntegTest extends AbstractIntegrationSpec {
+public class IvyPublishHttpIntegTest extends AbstractIvyPublishIntegTest {
     private static final String BAD_CREDENTIALS = '''
 credentials {
     username 'testuser'
@@ -141,7 +144,7 @@ credentials {
         progressLogging.uploadProgressLogged(module.jar.uri)
 
         where:
-        authScheme << [HttpServer.AuthScheme.BASIC, HttpServer.AuthScheme.DIGEST]
+        authScheme << [HttpServer.AuthScheme.BASIC, HttpServer.AuthScheme.DIGEST, HttpServer.AuthScheme.NTLM]
     }
 
     @Unroll
@@ -187,14 +190,17 @@ credentials {
         authScheme                   | credsName | creds
         HttpServer.AuthScheme.BASIC  | 'empty'   | ''
         HttpServer.AuthScheme.DIGEST | 'empty'   | ''
+        HttpServer.AuthScheme.NTLM   | 'empty'   | ''
         HttpServer.AuthScheme.BASIC  | 'bad'     | BAD_CREDENTIALS
         HttpServer.AuthScheme.DIGEST | 'bad'     | BAD_CREDENTIALS
+        HttpServer.AuthScheme.NTLM   | 'bad'     | BAD_CREDENTIALS
     }
 
     def "reports failure publishing to HTTP repository"() {
         given:
         server.start()
         def repositoryUrl = "http://localhost:${server.port}"
+        def repositoryPort = server.port
 
         buildFile << """
             apply plugin: 'java'
@@ -235,7 +241,7 @@ credentials {
         and:
         failure.assertHasDescription('Execution failed for task \':publishIvyPublicationToIvyRepository\'.')
         failure.assertHasCause('Failed to publish publication \'ivy\' to repository \'ivy\'')
-        failure.assertHasCause("org.apache.http.conn.HttpHostConnectException: Connection to ${repositoryUrl} refused")
+        failure.assertThatCause(matchesRegexp(".*?Connect to localhost:${repositoryPort} (\\[.*\\])? failed: Connection refused(: connect)?"))
     }
 
     def "uses first configured pattern for publication"() {
@@ -280,6 +286,8 @@ credentials {
         module.jarFile.assertIsCopyOf(file('build/libs/publish-2.jar'))
     }
 
+    @Requires(FIX_TO_WORK_ON_JAVA9)
+    @Issue('provide a different large jar')
     public void "can publish large artifact (tools.jar) to authenticated repository"() {
         given:
         server.start()
@@ -326,6 +334,7 @@ credentials {
         run 'publish'
 
         then:
+        module.assertIvyAndJarFilePublished()
         module.ivyFile.assertIsFile()
         module.jarFile.assertIsCopyOf(new TestFile(toolsJar))
     }
@@ -357,7 +366,7 @@ credentials {
         """
 
         and:
-        module.jar.expectPut(HttpStatus.ORDINAL_500_Internal_Server_Error)
+        module.jar.expectPutBroken()
 
         when:
         fails ':publish'

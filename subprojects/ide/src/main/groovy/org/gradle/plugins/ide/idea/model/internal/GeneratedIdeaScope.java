@@ -28,13 +28,16 @@ public enum GeneratedIdeaScope {
     PROVIDED_TEST("PROVIDED", "TEST"),
     PROVIDED("PROVIDED"),
     COMPILE("COMPILE"),
+    RUNTIME_COMPILE_CLASSPATH("PROVIDED", "RUNTIME"),
+    RUNTIME_TEST_COMPILE_CLASSPATH("PROVIDED", "TEST"),
     RUNTIME_TEST("RUNTIME", "TEST"),
     RUNTIME("RUNTIME"),
-    TEST("TEST");
+    TEST("TEST"),
+    COMPILE_CLASSPATH("PROVIDED");
 
     public final Set<String> scopes;
 
-    private GeneratedIdeaScope(String ... scopes) {
+    GeneratedIdeaScope(String ... scopes) {
         this.scopes = Collections.unmodifiableSet(Sets.newHashSet(scopes));
     }
 }

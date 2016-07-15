@@ -1,3 +1,5 @@
+sourceCompatibility = 1.6
+
 dependencies {
     compile project(":platformBase")
     compile project(":core")
@@ -12,6 +14,7 @@ dependencies {
 
 useTestFixtures()
 useTestFixtures(project: ':diagnostics')
+useTestFixtures(project: ':platformBase')
 
 useClassycle()
 strictCompile()

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 package org.gradle.nativeplatform
+
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
 import org.gradle.nativeplatform.fixtures.app.CppHelloWorldApp
 import org.gradle.util.Requires
@@ -95,11 +96,11 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        staticLibrary("build/binaries/helloStaticStaticLibrary/helloStatic").assertExistsAndDelete()
-        sharedLibrary("build/binaries/helloSharedSharedLibrary/helloShared").assertExistsAndDelete()
-        installation("build/install/mainExecutable")
-                .assertIncludesLibraries("helloShared")
-                .exec().out == "Hello staticHello shared"
+        staticLibrary("build/libs/helloStatic/static/helloStatic").assertExistsAndDelete()
+        sharedLibrary("build/libs/helloShared/shared/helloShared").assertExistsAndDelete()
+        installation("build/install/main")
+            .assertIncludesLibraries("helloShared")
+            .exec().out == "Hello staticHello shared"
     }
 
     def "executable can use a combination of libraries from the same and other projects"() {
@@ -117,8 +118,6 @@ project('lib') {
     }
 }
 project('exe') {
-// TODO:DAZ Remove this
-    evaluationDependsOn(":lib")
     apply plugin: "cpp"
     model {
         components {
@@ -194,11 +193,11 @@ project('exe') {
         succeeds "exe:installMainExecutable"
 
         then:
-        sharedLibrary("lib/build/binaries/helloLibSharedLibrary/helloLib").assertExistsAndDelete()
-        sharedLibrary("exe/build/binaries/helloMainSharedLibrary/helloMain").assertExistsAndDelete()
-        installation("exe/build/install/mainExecutable")
-                .assertIncludesLibraries("helloLib", "helloMain")
-                .exec().out == "Hello main\nHello lib"
+        sharedLibrary("lib/build/libs/helloLib/shared/helloLib").assertExistsAndDelete()
+        sharedLibrary("exe/build/libs/helloMain/shared/helloMain").assertExistsAndDelete()
+        installation("exe/build/install/main")
+            .assertIncludesLibraries("helloLib", "helloMain")
+            .exec().out == "Hello main\nHello lib"
     }
 
     def "source set library dependencies are not shared with other source sets"() {
@@ -273,7 +272,7 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == "CPP_C"
+        installation("build/install/main").exec().out == "CPP_C"
     }
 
     @Issue("GRADLE-2925")
@@ -312,6 +311,6 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == app.englishOutput
+        installation("build/install/main").exec().out == app.englishOutput
     }
 }

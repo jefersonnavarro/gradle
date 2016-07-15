@@ -15,6 +15,7 @@
  */
 
 package org.gradle.language.base.plugins
+
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import spock.lang.Unroll
 
@@ -28,20 +29,20 @@ class LifecycleBasePluginIntegrationTest extends AbstractIntegrationSpec {
 
     @Unroll
     def "throws deprecation warning when applied in build with #taskName"() {
-        when:
         buildFile << """
 
         task $taskName << {
             println "custom $taskName task"
         }
         """
-        executer.withDeprecationChecksDisabled()
-        executer.withStackTraceChecksDisabled()
-        succeeds(taskName)
+
+        when:
+        fails(taskName)
+
         then:
-        output.contains(String.format(LifecycleBasePlugin.CUSTOM_LIFECYCLE_TASK_DEPRECATION_MSG, taskName))
+        failure.assertHasCause("Declaring custom '$taskName' task when using the standard Gradle lifecycle plugins is not allowed.")
         where:
-        taskName << ["check", "build"]
+        taskName << ["check", "clean", "build", "assemble"]
     }
 
     def "can attach custom task as dependency to lifecycle task - #task"() {

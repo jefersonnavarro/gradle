@@ -16,19 +16,20 @@
 
 package org.gradle.performance.results;
 
-import com.googlecode.jatl.Html;
+import org.gradle.api.Transformer;
 import org.gradle.performance.fixture.MeasuredOperationList;
-import org.gradle.performance.fixture.PerformanceResults;
+import org.gradle.performance.measure.DataAmount;
+import org.gradle.performance.measure.DataSeries;
+import org.gradle.performance.measure.Duration;
 
 import java.io.IOException;
 import java.io.Writer;
-import java.util.Date;
-import java.util.List;
+import java.util.*;
 
 public class IndexPageGenerator extends HtmlPageGenerator<ResultsStore> {
     @Override
     public void render(final ResultsStore store, Writer writer) throws IOException {
-        new Html(writer) {{
+        new MetricsHtml(writer) {{
             html();
                 head();
                     headSection(this);
@@ -36,68 +37,73 @@ public class IndexPageGenerator extends HtmlPageGenerator<ResultsStore> {
                 end();
                 body();
                 div().id("content");
-                    h2().text("All tests").end();
+                    Calendar calendar = Calendar.getInstance();
+                    calendar.add(Calendar.DAY_OF_YEAR, -14);
+                    long expiry = calendar.getTime().getTime();
+                    Map<String, String> archived = new LinkedHashMap<String, String>();
                     List<String> testNames = store.getTestNames();
                     div().id("controls").end();
-                    table().classAttr("history");
                     for (String testName : testNames) {
-                        TestExecutionHistory testHistory = store.getTestResults(testName);
-                        tr();
-                            th().colspan("6").classAttr("test-execution");
-                                text(testName);
-                            end();
+                        PerformanceTestHistory testHistory = store.getTestResults(testName, 5);
+                        List<? extends PerformanceTestExecution> results = testHistory.getExecutions();
+                        if (results.isEmpty() || results.get(0).getTestTime() < expiry) {
+                            archived.put(testHistory.getId(), testHistory.getDisplayName());
+                            continue;
+                        }
+                        h2().classAttr("test-execution");
+                            text("Test: " + testName);
                         end();
+                        table().classAttr("history");
                         tr().classAttr("control-groups");
-                            th().colspan("3").end();
-                            th().colspan(String.valueOf(testHistory.getPerExecutionOperationsCount())).text("Average execution time").end();
-                            th().colspan(String.valueOf(testHistory.getPerExecutionOperationsCount())).text("Average heap usage").end();
+                            th().colspan("2").end();
+                            th().colspan(String.valueOf(testHistory.getScenarioCount() * getColumnsForSamples())).text("Average execution time").end();
+                            th().colspan(String.valueOf(testHistory.getScenarioCount() * getColumnsForSamples())).text("Average heap usage").end();
                         end();
                         tr();
                             th().text("Date").end();
-                            th().text("Test version").end();
                             th().text("Branch").end();
-                            for (String label : testHistory.getOperationLabels()) {
-                                th().classAttr("numeric").text(label).end();
+                            for (String label : testHistory.getScenarioLabels()) {
+                                renderHeaderForSamples(label);
                             }
-                            for (String label : testHistory.getOperationLabels()) {
-                                th().classAttr("numeric").text(label).end();
+                            for (String label : testHistory.getScenarioLabels()) {
+                                renderHeaderForSamples(label);
                             }
                         end();
-                        List<PerformanceResults> results = testHistory.getPerformanceResults();
-                        for (int i = 0; i < results.size() && i < 5; i++) {
-                            PerformanceResults performanceResults = results.get(i);
+                        for (PerformanceTestExecution performanceTestExecution : results) {
                             tr();
-                                td().text(format.timestamp(new Date(performanceResults.getTestTime()))).end();
-                                td().text(performanceResults.getVersionUnderTest()).end();
-                                td().text(performanceResults.getVcsBranch()).end();
-                                for (MeasuredOperationList measuredExecution : performanceResults.getExecutionOperations()) {
-                                    td().classAttr("numeric");
-                                    if (measuredExecution.isEmpty()) {
-                                        text("");
-                                    } else {
-                                        text(measuredExecution.getExecutionTime().getAverage().format());
+                                td().text(format.timestamp(new Date(performanceTestExecution.getTestTime()))).end();
+                                td().text(performanceTestExecution.getVcsBranch()).end();
+                                renderSamplesForExperiment(performanceTestExecution.getScenarios(), new Transformer<DataSeries<Duration>, MeasuredOperationList>() {
+                                    @Override
+                                    public DataSeries<Duration> transform(MeasuredOperationList measuredOperations) {
+                                        return measuredOperations.getTotalTime();
                                     }
-                                    end();
-                                }
-                            for (MeasuredOperationList measuredExecution : performanceResults.getExecutionOperations()) {
-                                    td().classAttr("numeric");
-                                    if (measuredExecution.isEmpty()) {
-                                        text("");
-                                    } else {
-                                        text(measuredExecution.getTotalMemoryUsed().getAverage().format());
+                                });
+                                renderSamplesForExperiment(performanceTestExecution.getScenarios(), new Transformer<DataSeries<DataAmount>, MeasuredOperationList>() {
+                                    @Override
+                                    public DataSeries<DataAmount> transform(MeasuredOperationList measuredOperations) {
+                                        return measuredOperations.getTotalMemoryUsed();
                                     }
-                                    end();
-                                }
+                                });
                             end();
                         }
-                        tr();
-                            td().colspan("6");
-                                String url = testHistory.getId() + ".html";
-                                a().href(url).text("details...").end();
+                        end();
+                        div().classAttr("details");
+                            String url = "tests/" + testHistory.getId() + ".html";
+                            a().href(url).text("details...").end();
+                        end();
+                    }
+                    if (!archived.isEmpty()) {
+                        h2().text("Archived tests").end();
+                        div();
+                            ul();
+                                for (Map.Entry<String, String> entry : archived.entrySet()) {
+                                    String url = "tests/" + entry.getKey() + ".html";
+                                    li().a().href(url).text(entry.getValue()).end().end();
+                                }
                             end();
                         end();
                     }
-                    end();
                 end();
                 footer(this);
             endAll();

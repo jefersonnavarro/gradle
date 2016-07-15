@@ -20,8 +20,8 @@ import org.apache.commons.lang.StringUtils;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileTreeElement;
 import org.gradle.api.file.SourceDirectorySet;
-import org.gradle.api.internal.file.DefaultSourceDirectorySet;
-import org.gradle.api.internal.file.FileResolver;
+import org.gradle.api.internal.file.SourceDirectorySetFactory;
+import org.gradle.api.internal.jvm.ClassDirectoryBinaryNamingScheme;
 import org.gradle.api.specs.Spec;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetOutput;
@@ -37,32 +37,33 @@ public class DefaultSourceSet implements SourceSet {
     private final SourceDirectorySet resources;
     private final String displayName;
     private final SourceDirectorySet allSource;
-
+    private final ClassDirectoryBinaryNamingScheme namingScheme;
     private DefaultSourceSetOutput output;
 
-    public DefaultSourceSet(String name, FileResolver fileResolver) {
+    public DefaultSourceSet(String name, SourceDirectorySetFactory sourceDirectorySetFactory) {
         this.name = name;
         displayName = GUtil.toWords(this.name);
+        namingScheme = new ClassDirectoryBinaryNamingScheme(name);
 
-        String javaSrcDisplayName = String.format("%s Java source", displayName);
+        String javaSrcDisplayName = displayName + " Java source";
 
-        javaSource = new DefaultSourceDirectorySet(javaSrcDisplayName, fileResolver);
+        javaSource = sourceDirectorySetFactory.create(javaSrcDisplayName);
         javaSource.getFilter().include("**/*.java");
 
-        allJavaSource = new DefaultSourceDirectorySet(javaSrcDisplayName, fileResolver);
+        allJavaSource = sourceDirectorySetFactory.create(javaSrcDisplayName);
         allJavaSource.getFilter().include("**/*.java");
         allJavaSource.source(javaSource);
 
-        String resourcesDisplayName = String.format("%s resources", displayName);
-        resources = new DefaultSourceDirectorySet(resourcesDisplayName, fileResolver);
+        String resourcesDisplayName = displayName + " resources";
+        resources = sourceDirectorySetFactory.create(resourcesDisplayName);
         resources.getFilter().exclude(new Spec<FileTreeElement>() {
             public boolean isSatisfiedBy(FileTreeElement element) {
                 return javaSource.contains(element.getFile());
             }
         });
 
-        String allSourceDisplayName = String.format("%s source", displayName);
-        allSource = new DefaultSourceDirectorySet(allSourceDisplayName, fileResolver);
+        String allSourceDisplayName = displayName + " source";
+        allSource = sourceDirectorySetFactory.create(allSourceDisplayName);
         allSource.source(resources);
         allSource.source(javaSource);
     }
@@ -73,7 +74,7 @@ public class DefaultSourceSet implements SourceSet {
 
     @Override
     public String toString() {
-        return String.format("source set '%s'", getDisplayName());
+        return "source set '" + getDisplayName() + "'";
     }
 
     public String getDisplayName() {
@@ -101,13 +102,7 @@ public class DefaultSourceSet implements SourceSet {
     }
 
     public String getTaskName(String verb, String target) {
-        if (verb == null) {
-            return StringUtils.uncapitalize(String.format("%s%s", getTaskBaseName(), StringUtils.capitalize(target)));
-        }
-        if (target == null) {
-            return StringUtils.uncapitalize(String.format("%s%s", verb, GUtil.toCamelCase(name)));
-        }
-        return StringUtils.uncapitalize(String.format("%s%s%s", verb, getTaskBaseName(), StringUtils.capitalize(target)));
+        return namingScheme.getTaskName(verb, target);
     }
 
     private String getTaskBaseName() {
@@ -115,11 +110,20 @@ public class DefaultSourceSet implements SourceSet {
     }
 
     public String getCompileConfigurationName() {
-        return StringUtils.uncapitalize(String.format("%sCompile", getTaskBaseName()));
+        return StringUtils.uncapitalize(getTaskBaseName() + "Compile");
     }
 
     public String getRuntimeConfigurationName() {
-        return StringUtils.uncapitalize(String.format("%sRuntime", getTaskBaseName()));
+        return StringUtils.uncapitalize(getTaskBaseName() + "Runtime");
+    }
+
+    public String getCompileOnlyConfigurationName() {
+        return StringUtils.uncapitalize(getTaskBaseName() + "CompileOnly");
+    }
+
+    @Override
+    public String getCompileClasspathConfigurationName() {
+        return StringUtils.uncapitalize(getTaskBaseName() + "CompileClasspath");
     }
 
     public SourceSetOutput getOutput() {

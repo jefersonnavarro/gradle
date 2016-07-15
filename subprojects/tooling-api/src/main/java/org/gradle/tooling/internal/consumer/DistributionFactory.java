@@ -24,13 +24,20 @@ import org.gradle.internal.Factory;
 import org.gradle.internal.UncheckedException;
 import org.gradle.internal.classpath.ClassPath;
 import org.gradle.internal.classpath.DefaultClassPath;
-import org.gradle.logging.ProgressLogger;
-import org.gradle.logging.ProgressLoggerFactory;
+import org.gradle.internal.logging.progress.ProgressLogger;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
 import org.gradle.tooling.BuildCancelledException;
 import org.gradle.tooling.GradleConnectionException;
 import org.gradle.util.DistributionLocator;
 import org.gradle.util.GradleVersion;
-import org.gradle.wrapper.*;
+import org.gradle.wrapper.Download;
+import org.gradle.wrapper.GradleUserHomeLookup;
+import org.gradle.wrapper.IDownload;
+import org.gradle.wrapper.Install;
+import org.gradle.wrapper.Logger;
+import org.gradle.wrapper.PathAssembler;
+import org.gradle.wrapper.WrapperConfiguration;
+import org.gradle.wrapper.WrapperExecutor;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -42,11 +49,18 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 
+import static org.gradle.internal.FileUtils.hasExtension;
+
 public class DistributionFactory {
     private final Factory<? extends ExecutorService> executorFactory;
+    private File distributionBaseDir;
 
     public DistributionFactory(Factory<? extends ExecutorService> executorFactory) {
         this.executorFactory = Preconditions.checkNotNull(executorFactory);
+    }
+
+    public void setDistributionBaseDir(File distributionBaseDir) {
+        this.distributionBaseDir = distributionBaseDir;
     }
 
     /**
@@ -54,9 +68,9 @@ public class DistributionFactory {
      */
     public Distribution getDefaultDistribution(File projectDir, boolean searchUpwards) {
         BuildLayout layout = new BuildLayoutFactory().getLayoutFor(projectDir, searchUpwards);
-        WrapperExecutor wrapper = WrapperExecutor.forProjectDirectory(layout.getRootDirectory(), System.out);
+        WrapperExecutor wrapper = WrapperExecutor.forProjectDirectory(layout.getRootDirectory());
         if (wrapper.getDistribution() != null) {
-            return new ZippedDistribution(wrapper.getConfiguration(), executorFactory);
+            return new ZippedDistribution(wrapper.getConfiguration(), executorFactory, distributionBaseDir);
         }
         return getDownloadedDistribution(GradleVersion.current().getVersion());
     }
@@ -65,8 +79,8 @@ public class DistributionFactory {
      * Returns the distribution installed in the specified directory.
      */
     public Distribution getDistribution(File gradleHomeDir) {
-        return new InstalledDistribution(gradleHomeDir, String.format("Gradle installation '%s'", gradleHomeDir),
-                String.format("Gradle installation directory '%s'", gradleHomeDir));
+        return new InstalledDistribution(gradleHomeDir, "Gradle installation '" + gradleHomeDir + "'",
+                "Gradle installation directory '" + gradleHomeDir + "'");
     }
 
     /**
@@ -82,7 +96,7 @@ public class DistributionFactory {
     public Distribution getDistribution(URI gradleDistribution) {
         WrapperConfiguration configuration = new WrapperConfiguration();
         configuration.setDistribution(gradleDistribution);
-        return new ZippedDistribution(configuration, executorFactory);
+        return new ZippedDistribution(configuration, executorFactory, distributionBaseDir);
     }
 
     /**
@@ -101,14 +115,16 @@ public class DistributionFactory {
         private InstalledDistribution installedDistribution;
         private final WrapperConfiguration wrapperConfiguration;
         private final Factory<? extends ExecutorService> executorFactory;
+        private final File distributionBaseDir;
 
-        private ZippedDistribution(WrapperConfiguration wrapperConfiguration, Factory<? extends ExecutorService> executorFactory) {
+        private ZippedDistribution(WrapperConfiguration wrapperConfiguration, Factory<? extends ExecutorService> executorFactory, File distributionBaseDir) {
             this.wrapperConfiguration = wrapperConfiguration;
             this.executorFactory = executorFactory;
+            this.distributionBaseDir = distributionBaseDir;
         }
 
         public String getDisplayName() {
-            return String.format("Gradle distribution '%s'", wrapperConfiguration.getDistribution());
+            return "Gradle distribution '" + wrapperConfiguration.getDistribution() + "'";
         }
 
         public ClassPath getToolingImplementationClasspath(final ProgressLoggerFactory progressLoggerFactory, final File userHomeDir, BuildCancellationToken cancellationToken) {
@@ -117,7 +133,7 @@ public class DistributionFactory {
                     public File call() throws Exception {
                         File installDir;
                         try {
-                            File realUserHomeDir = userHomeDir != null ? userHomeDir : GradleUserHomeLookup.gradleUserHome();
+                            File realUserHomeDir = determineRealUserHomeDir(userHomeDir);
                             Install install = new Install(new Logger(false), new ProgressReportingDownload(progressLoggerFactory), new PathAssembler(realUserHomeDir));
                             installDir = install.createDist(wrapperConfiguration);
                         } catch (FileNotFoundException e) {
@@ -160,6 +176,14 @@ public class DistributionFactory {
             }
             return installedDistribution.getToolingImplementationClasspath(progressLoggerFactory, userHomeDir, cancellationToken);
         }
+
+        private File determineRealUserHomeDir(final File userHomeDir) {
+            if(distributionBaseDir != null) {
+                return distributionBaseDir;
+            }
+
+            return userHomeDir != null ? userHomeDir : GradleUserHomeLookup.gradleUserHome();
+        }
     }
 
     private static class ProgressReportingDownload implements IDownload {
@@ -171,7 +195,7 @@ public class DistributionFactory {
 
         public void download(URI address, File destination) throws Exception {
             ProgressLogger progressLogger = progressLoggerFactory.newOperation(DistributionFactory.class);
-            progressLogger.setDescription(String.format("Download %s", address));
+            progressLogger.setDescription("Download " + address);
             progressLogger.started();
             try {
                 new Download(new Logger(false), "Gradle Tooling API", GradleVersion.current().getVersion()).download(address, destination);
@@ -220,7 +244,7 @@ public class DistributionFactory {
             }
             LinkedHashSet<File> files = new LinkedHashSet<File>();
             for (File file : libDir.listFiles()) {
-                if (file.getName().endsWith(".jar")) {
+                if (hasExtension(file, ".jar")) {
                     files.add(file);
                 }
             }

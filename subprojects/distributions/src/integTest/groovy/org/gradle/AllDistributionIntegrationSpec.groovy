@@ -51,17 +51,12 @@ class AllDistributionIntegrationSpec extends DistributionIntegrationSpec {
                 buildAndGradleDirs << it
             }
         }
-        buildAndGradleDirs.empty
+        buildAndGradleDirs == []
 
         // Javadoc
         contentsDir.file('docs/javadoc/index.html').assertIsFile()
         contentsDir.file('docs/javadoc/index.html').assertContents(containsString("Gradle API ${version}"))
         contentsDir.file('docs/javadoc/org/gradle/api/Project.html').assertIsFile()
-
-        // Groovydoc
-        contentsDir.file('docs/groovydoc/index.html').assertIsFile()
-        contentsDir.file('docs/groovydoc/org/gradle/api/Project.html').assertIsFile()
-        contentsDir.file('docs/groovydoc/org/gradle/api/tasks/bundling/Zip.html').assertIsFile()
 
         // Userguide
         contentsDir.file('docs/userguide/userguide.html').assertIsFile()

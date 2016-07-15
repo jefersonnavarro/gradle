@@ -16,8 +16,6 @@
 
 package org.gradle.plugin.devel.plugins
 
-import ch.qos.logback.classic.spi.LoggingEvent
-import ch.qos.logback.core.AppenderBase
 import org.gradle.api.Action
 import org.gradle.api.Task
 import org.gradle.api.file.FileCopyDetails
@@ -26,22 +24,24 @@ import org.gradle.api.internal.ConventionMapping
 import org.gradle.api.internal.plugins.PluginDescriptor
 import org.gradle.api.plugins.JavaPlugin
 import org.gradle.api.tasks.bundling.Jar
-import org.gradle.logging.ConfigureLogging
-import org.gradle.util.TestUtil
+import org.gradle.internal.logging.ConfigureLogging
+import org.gradle.internal.logging.events.LogEvent
+import org.gradle.internal.logging.events.OutputEvent
+import org.gradle.internal.logging.events.OutputEventListener
+import org.gradle.plugin.devel.PluginDeclaration
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 import org.junit.Rule
-import spock.lang.Specification
 
-class JavaGradlePluginPluginTest extends Specification {
-    final ResettableAppender appender = new ResettableAppender()
+class JavaGradlePluginPluginTest extends AbstractProjectBuilderSpec {
+    final ResettableOutputEventListener outputEventListener = new ResettableOutputEventListener()
 
     @Rule
-    final ConfigureLogging logging = new ConfigureLogging(appender)
+    final ConfigureLogging logging = new ConfigureLogging(outputEventListener)
 
-    final static String NO_DESCRIPTOR_WARNING = JavaGradlePluginPlugin.NO_DESCRIPTOR_WARNING_MESSAGE
-    final static String BAD_IMPL_CLASS_WARNING_PREFIX = JavaGradlePluginPlugin.BAD_IMPL_CLASS_WARNING_MESSAGE.split('%')[0]
-    final static String INVALID_DESCRIPTOR_WARNING_PREFIX = JavaGradlePluginPlugin.INVALID_DESCRIPTOR_WARNING_MESSAGE.split('%')[0]
-
-    def project = TestUtil.builder().withName("plugin").build()
+    final static String NO_DESCRIPTOR_WARNING = JavaGradlePluginPlugin.NO_DESCRIPTOR_WARNING_MESSAGE.substring(4)
+    final static String DECLARED_PLUGIN_MISSING_PREFIX = JavaGradlePluginPlugin.DECLARED_PLUGIN_MISSING_MESSAGE.substring(4).split('[%]')[0]
+    final static String BAD_IMPL_CLASS_WARNING_PREFIX = JavaGradlePluginPlugin.BAD_IMPL_CLASS_WARNING_MESSAGE.substring(4).split('[%]')[0]
+    final static String INVALID_DESCRIPTOR_WARNING_PREFIX = JavaGradlePluginPlugin.INVALID_DESCRIPTOR_WARNING_MESSAGE.substring(4).split('[%]')[0]
 
     def "PluginDescriptorCollectorAction correctly identifies plugin descriptor file"(String contents, String expectedPluginImpl, boolean expectedEmpty) {
         setup:
@@ -82,7 +82,7 @@ class JavaGradlePluginPluginTest extends Specification {
 
     def "PluginValidationAction finds fully qualified class"(List classList, String fqClass, boolean expectedValue) {
         setup:
-        Action<Task> pluginValidationAction = new JavaGradlePluginPlugin.PluginValidationAction([], classList as Set<String>)
+        Action<Task> pluginValidationAction = new JavaGradlePluginPlugin.PluginValidationAction([], [], classList as Set<String>)
 
         expect:
         pluginValidationAction.hasFullyQualifiedClass(fqClass) == expectedValue
@@ -95,7 +95,7 @@ class JavaGradlePluginPluginTest extends Specification {
         ['com/xxx/yyy/TestPlugin.class'] | 'com.xxx.TestPlugin' | false
     }
 
-    def "PluginValidationAction logs correct warning messages"(String impl, String implFile, String expectedMessage) {
+    def "PluginValidationAction logs correct warning messages for broken plugins"(String impl, String implFile, String expectedMessage) {
         setup:
         Task stubTask = Stub(Task)
         List<PluginDescriptor> descriptors = []
@@ -109,12 +109,12 @@ class JavaGradlePluginPluginTest extends Specification {
         if (implFile) {
             classes.add(implFile)
         }
-        Action<Task> pluginValidationAction = new JavaGradlePluginPlugin.PluginValidationAction(descriptors, classes)
-        appender.reset()
+        Action<Task> pluginValidationAction = new JavaGradlePluginPlugin.PluginValidationAction([], descriptors, classes)
+        outputEventListener.reset()
 
         expect:
         pluginValidationAction.execute(stubTask)
-        expectedMessage == null || appender.toString().contains(expectedMessage)
+        expectedMessage == null || outputEventListener.toString().contains(expectedMessage)
 
         where:
         impl    | implFile      | expectedMessage
@@ -123,6 +123,36 @@ class JavaGradlePluginPluginTest extends Specification {
         'x.y.z' | null          | BAD_IMPL_CLASS_WARNING_PREFIX
         'x.y.z' | 'z.class'     | BAD_IMPL_CLASS_WARNING_PREFIX
         'x.y.z' | 'x/y/z.class' | null
+    }
+
+    def "PluginValidationAction logs correct warning messages for missing plugins"(String id, String impl, String expectedMessage) {
+        setup:
+        Task stubTask = Stub(Task)
+        List<PluginDescriptor> descriptors = []
+        if (impl != null) {
+            descriptors << Stub(PluginDescriptor) {
+                getPropertiesFileUrl() >> { new URL("file:///test-plugin/${impl}.properties") }
+            }
+        }
+        List<PluginDeclaration> declarations = []
+        if (id) {
+            declarations << Stub(PluginDeclaration) {
+                getName() >> id
+                getId() >> id
+            }
+        }
+        Action<Task> pluginValidationAction = new JavaGradlePluginPlugin.PluginValidationAction(declarations, descriptors, [] as Set)
+        outputEventListener.reset()
+
+        expect:
+        pluginValidationAction.execute(stubTask)
+        expectedMessage == null || outputEventListener.toString().contains(expectedMessage)
+
+        where:
+        id      | impl      | expectedMessage
+        'x.y.z' | 'a.b.c'   | DECLARED_PLUGIN_MISSING_PREFIX
+        'x.y.z' | 'x.y.z'   | null
+        null    | 'x.y.z'   | null
     }
 
     def "apply adds java plugin"() {
@@ -139,8 +169,8 @@ class JavaGradlePluginPluginTest extends Specification {
 
         then:
         project.configurations
-                .getByName(JavaGradlePluginPlugin.COMPILE_CONFIGURATION)
-                .dependencies.find {
+            .getByName(JavaGradlePluginPlugin.COMPILE_CONFIGURATION)
+            .dependencies.find {
             it.source.files == project.dependencies.gradleApi().source.files
         }
     }
@@ -180,17 +210,8 @@ class JavaGradlePluginPluginTest extends Specification {
         return mockJar
     }
 
-    static class ResettableAppender extends AppenderBase<LoggingEvent> {
+    static class ResettableOutputEventListener implements OutputEventListener {
         final StringBuffer buffer = new StringBuffer()
-
-        synchronized void doAppend(LoggingEvent e) {
-            append(e)
-        }
-
-        @Override
-        protected void append(LoggingEvent eventObject) {
-            buffer.append(eventObject.formattedMessage)
-        }
 
         void reset() {
             buffer.delete(0, buffer.size())
@@ -199,6 +220,12 @@ class JavaGradlePluginPluginTest extends Specification {
         @Override
         String toString() {
             return buffer.toString()
+        }
+
+        @Override
+        synchronized void onOutput(OutputEvent event) {
+            LogEvent logEvent = event as LogEvent
+            buffer.append(logEvent.message)
         }
     }
 }

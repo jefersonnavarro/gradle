@@ -37,6 +37,11 @@ class ArchiveTestFixture {
         this
     }
 
+    def assertNotContainsFile(String relativePath) {
+        assert !filesByRelativePath.keySet().contains(relativePath)
+        this
+    }
+
     def assertContainsFile(String relativePath, int occurrences) {
         assertContainsFile(relativePath)
         def actualOccurrences = filesByRelativePath.get(relativePath).size()
@@ -47,7 +52,7 @@ class ArchiveTestFixture {
 
     String content(String relativePath) {
         List<String> files = filesByRelativePath.get(relativePath)
-        assertEquals(1, files.size())
+        assert files.size() == 1
         files.get(0)
     }
 
@@ -70,6 +75,13 @@ class ArchiveTestFixture {
     def containsDescendants(String... relativePaths) {
         for (String path : relativePaths) {
             assertContainsFile(path)
+        }
+        this
+    }
+
+    def doesNotContainDescendants(String... relativePaths) {
+        for (String path : relativePaths) {
+            assertNotContainsFile(path)
         }
         this
     }

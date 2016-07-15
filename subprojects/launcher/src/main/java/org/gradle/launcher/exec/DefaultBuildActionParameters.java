@@ -16,9 +16,7 @@
 package org.gradle.launcher.exec;
 
 import org.gradle.api.logging.LogLevel;
-import org.gradle.initialization.BuildClientMetaData;
-import org.gradle.initialization.BuildRequestMetaData;
-import org.gradle.initialization.DefaultBuildRequestMetaData;
+import org.gradle.internal.classpath.ClassPath;
 import org.gradle.util.GUtil;
 
 import java.io.File;
@@ -27,27 +25,29 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class DefaultBuildActionParameters implements BuildActionParameters, Serializable {
-    private final BuildClientMetaData clientMetaData;
-    private final long startTime;
     private final File currentDir;
     private final LogLevel logLevel;
     private final Map<String, String> systemProperties;
     private final Map<String, String> envVariables;
 
-    public DefaultBuildActionParameters(BuildClientMetaData clientMetaData, long startTime, Map<?, ?> systemProperties, Map<String, String> envVariables, File currentDir, LogLevel logLevel) {
-        this.clientMetaData = clientMetaData;
-        this.startTime = startTime;
+    private final boolean useDaemon;
+    private final boolean continuous;
+    private final boolean interactive;
+    private final ClassPath injectedPluginClasspath;
+
+    public DefaultBuildActionParameters(Map<?, ?> systemProperties, Map<String, String> envVariables, File currentDir, LogLevel logLevel, boolean useDaemon, boolean continuous, boolean interactive,
+                                        ClassPath injectedPluginClasspath) {
         this.currentDir = currentDir;
         this.logLevel = logLevel;
+        this.useDaemon = useDaemon;
+        this.continuous = continuous;
         assert systemProperties != null;
         assert envVariables != null;
         this.systemProperties = new HashMap<String, String>();
         GUtil.addToMap(this.systemProperties, systemProperties);
         this.envVariables = new HashMap<String, String>(envVariables);
-    }
-
-    public BuildRequestMetaData getBuildRequestMetaData() {
-        return new DefaultBuildRequestMetaData(clientMetaData, startTime);
+        this.interactive = interactive;
+        this.injectedPluginClasspath = injectedPluginClasspath;
     }
 
     public Map<String, String> getSystemProperties() {
@@ -69,11 +69,30 @@ public class DefaultBuildActionParameters implements BuildActionParameters, Seri
     @Override
     public String toString() {
         return "DefaultBuildActionParameters{"
-                + "clientMetaData=" + clientMetaData
-                + ", startTime=" + startTime
-                + ", currentDir=" + currentDir
-                + ", systemProperties size=" + systemProperties.size()
-                + ", envVariables size=" + envVariables.size()
-                + '}';
+            + ", currentDir=" + currentDir
+            + ", systemProperties size=" + systemProperties.size()
+            + ", envVariables size=" + envVariables.size()
+            + ", logLevel=" + logLevel
+            + ", useDaemon=" + useDaemon
+            + ", continuous=" + continuous
+            + ", interactive=" + interactive
+            + ", injectedPluginClasspath=" + injectedPluginClasspath
+            + '}';
+    }
+
+    public boolean isUseDaemon() {
+        return useDaemon;
+    }
+
+    public boolean isContinuous() {
+        return continuous;
+    }
+
+    public boolean isInteractive() {
+        return interactive;
+    }
+
+    public ClassPath getInjectedPluginClasspath() {
+        return injectedPluginClasspath;
     }
 }

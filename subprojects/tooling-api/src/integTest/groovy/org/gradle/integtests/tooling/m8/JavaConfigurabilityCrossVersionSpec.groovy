@@ -40,6 +40,7 @@ class JavaConfigurabilityCrossVersionSpec extends ToolingApiSpecification {
         }
 
         then:
+        env.java.javaHome
         env.java.jvmArguments.contains "-Xms13m"
         env.java.jvmArguments.contains "-Xmx333m"
     }
@@ -55,12 +56,13 @@ class JavaConfigurabilityCrossVersionSpec extends ToolingApiSpecification {
 
         then:
         env.java.javaHome
-        !env.java.jvmArguments.empty
+        env.java.jvmArguments.contains("-Xmx1024m")
+        env.java.jvmArguments.contains("-XX:+HeapDumpOnOutOfMemoryError")
     }
 
     def "tooling api provided jvm args take precedence over gradle.properties"() {
         file('build.gradle') << """
-assert java.lang.management.ManagementFactory.runtimeMXBean.inputArguments.contains('-Xmx23m')
+assert java.lang.management.ManagementFactory.runtimeMXBean.inputArguments.contains('-Xmx53m')
 assert System.getProperty('some-prop') == 'BBB'
 """
         file('gradle.properties') << "org.gradle.jvmargs=-Dsome-prop=AAA -Xmx16m"
@@ -68,7 +70,7 @@ assert System.getProperty('some-prop') == 'BBB'
         when:
         def model = withConnection {
             it.model(GradleProject.class)
-                .setJvmArguments('-Dsome-prop=BBB', '-Xmx23m')
+                .setJvmArguments('-Dsome-prop=BBB', '-Xmx53m')
                 .get()
         }
 

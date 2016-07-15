@@ -11,32 +11,44 @@ where no special dependency syntax is required.
 
 # Feature: Dependency substitution rules handle project dependencies
 
-## Story: Use dependency substitution rule to replace external dependency with project dependency
+## Story: Use dependency substitution rule to substitute external and project dependencies
 
-Extend the existing dependency substitution mechanism to permit replacing an external dependency with a project dependency.
-Note that adding a project dependency in this way will not result in the correct tasks being added to the task execution graph.
+Extend the existing dependency substitution mechanism to permit replacing an external dependency with a project dependency and vice-versa.
+Note that adding a project dependency in this way may not result in the correct tasks being added to the task execution graph, and replacing a project dependency with an external dependency may still result in the project being built when resolving the dependencies.
 This is similar to the current situation when a project dependency is added to a configuration during task execution.
 
 ### User visible changes
 
 ```
+interface DependencySubstitution {
+    ComponentSelector getRequested()
+    void useTarget(Object notation)
+}
+
 configurations.all {
-    resolutionStrategy.eachDependency { DependencyResolveDetails details ->
-        assert details.target instanceOf ModuleComponentSelector
-        if (details.requested.group == 'org.gradle' && details.requested.name == 'mylib') {
-            details.useTarget project: 'foo'
+    resolutionStrategy {
+        dependencySubstitution {
+            all { DependencySubstitution dependency ->
+                if (dependency.requested instanceof ModuleComponentSelector) {
+                    if (dependency.requested.group == 'org.gradle' && dependency.requested.name == 'mylib') {
+                        dependency.useTarget project(":foo")
+                    }
+                }
+            }
+            substitute module("org.gradle:mylib:1.0") with project(":foo")
+            substitute project(":bar") with module("org.gradle:another:1.+")
         }
-        assert details.target instanceOf ProjectComponentSelector
     }
 }
 ```
 
-- `DependencyResolveDetails.getTarget()` now returns `ComponentSelector`
-    - This is a breaking change and should be noted in the release notes.
-
 ### Implementation
 
-A description of how we plan to implement this.
+Introduce a new DSL that allows applying substitution rules on all dependencies, or only on modules or projects.
+Ability to substitute a single module or project should be provided as well.
+
+This new DSL supersedes `ResolutionStrategy.eachDependency()`, which in turn is deprecated. `DependencyResolveDetails` is
+deprecated, too, and replaced by the `DependencySubstitution` interface family.
 
 A few notes:
 
@@ -48,43 +60,68 @@ A few notes:
 
 ### Test coverage
 
-How are we going to test this feature? How do we prove that the work is done?
+- Resolved graph includes correct (substituted) dependencies
+    - Replacement of top-level dependency
+    - Replacement of transitive dependency
+    - Replacement of Client module dependency
+- Interaction with forced versions and other resolve rules
+- Conflict resolution where 2 external dependency versions are in graph, but only one version is replaced by project dependency
+- Additional dependency details (configuration, transitive, etc) are retained in substituted dependency
+- Real resolution of dependency files: pre-build the substituted project. (This test would later be modified to remove the pre-build step).
+- Dependency reports provide information on dependency substitution
+- Deprecation warnings are shown when `ResolutionStrategy.eachDependency` is used
+- New DSL works together with `ResolutionStrategy.force()` and the deprecated `ResolutionStrategy.eachDependency`
 
 ### Open issues
 
-This section is to keep track of assumptions and things we haven't figured out yet.
+- Should generate `Closure` accepting API methods based on `Action` accepting API methods
+    - Should also allow RuleSource input, and generate `Action` and `Closure` accepting methods based on `RuleSource` methods
+- DSL documentation
+    - More usage examples on `DependencySubstitutions`
+    - Ensure that new classes are included in DSL reference
+- Maybe don't _yet_ deprecate the existing API (and replace in the docs).
+    - Depends on release strategy (do we announce in 2.4), and how confident we feel about the new DSL
+    - Don't want to encourage users to switch if we think we might change DSL in 2.5
+- Some of the userguide examples could use `withModule` for convenience
 
 ## Story: Option to re-resolve Configuration when modified after resolution
 
-- Detect and track _all_ changes made to a Configuration after resolution
-- After resolution, the configuration should be in a 'closed' state.
-    - Warning emitted on any subsequent mutation
-    - Changes made after this point will be ignored
-- Provide an internal mechanism, set configuration to a 'mutable' state.
-    - No warnings on subsequent mutation.
-    - When resolved configuration is next required, the configuration is re-resolved, and state set to 'closed'
+- Finer-grained tracking of state of Configuration
+    - After inclusion in a result: state == 'Observed'
+    - After task dependencies calculated: state == 'TaskDependenciesResolved'
+    - After complete resolution: state == 'Resolved'
+- Detect _all_ changes made to a Configuration after resolution. Changes are of 2 types:
+    - Changes to the `Strategy` (how the configuration is resolved): ResolutionStrategy, Caching
+    - Changes to the `Content` (actual dependencies included in the configuration): Dependencies, Artifacts
+- When in 'Observed' state:
+    - Changes to the Strategy are OK
+    - Changes to the Content are deprecated
+- When in 'TaskDependenciesResolved' state
+    - Changes to the Strategy are deprecated
+    - Changes to the Content are deprecated
+    - Requesting the resolve result without an intervening change: re-use the previous result
+    - Requesting the resolve result after an intervening change: recalculate the result
+- When in 'Resolved' state
+    - Changes to the Strategy are deprecated
+    - Changes to the Content will fail
+    - Any changes to the strategy after resolve will be ignored
     
 ### Test coverage
 
-- Warning emitted and change ignored when Configuration mutated after resolution:
-   - Dependency added/replaced/removed
-   - Set of parent configurations changes
-   - ResolutionStrategy modified
-   - Set of exclude rules changes
-   - Calls to `ResolvableDependencies.beforeResolve` and `afterResolve`
-   - Any mutation to parent configuration (even if that configuration has not been explicitly resolved)
-- When a previously-resolved Configuration is set to a 'mutable' state and not mutated:
+- Warning emitted and change honoured when configuration _content_ is mutated after configuration is 'observed'
+    - No warning for changes to configuration _strategy_
+- Warning emitted and change honoured when configuration _content_ or _strategy_ is mutated after configuration has it's task dependencies resolved
+- Attempting to change the _content_ of a 'resolved' configuration will fail
+- Warning emitted and change ignored for change to _strategy_ of a 'resolved' configuration
+
+- When the task dependencies of a Configuration are calculated, and the configuration is resolved without modification
    - Use of `FileCollection` API uses previous resolution result
    - New and existing `ResolvedConfiguration` instances use previous resolution result
    - New and existing `ResolvableDependencies` instances use previous resolution result
-- When a previously-resolved Configuration is set to a 'mutable' state and is mutated:
+- When the task dependencies of a Configuration are calculated, and the configuration is resolved after modification
    - Use of `FileCollection` API forces re-resolve and uses new resolution result
    - Use of new and existing `ResolvedConfiguration` instances forces re-resolve and uses new resolution result
    - Use of new and existing `ResolvableDependencies` instances forces re-resolve and uses new resolution result
-
-### Open issues
-
-- Permit a user to set a configuration back to 'mutable' state, to avoid warnings and permit re-resolve?
 
 ## Task graph includes correct tasks for replaced project dependencies
 
@@ -98,46 +135,28 @@ external dependency, the correct tasks are included for execution:
 
 ### Implementation
 
-- Perform full resolution of task input configurations when building the task graph
-- For now, assume that all configurations are modified during task execution, 
-  and must be re-resolved when preparing the inputs for a particular task execution
-
 ### Test coverage
 
+- TBD
+
 ### Open issues
-
-## Story: Use dependency substitution rule to replace project dependency with external dependency
-
-- Dependency substitution rules already apply when resolving project dependencies as well as external dependencies.
-- `DependencyResolveDetails.getRequested()` should return `ComponentSelector`
 
 ## Story: IDE plugins include correct set of projects based on dependency substitution
 
-## Story: Dependency reports provide information on dependency substitution
+Newly introduced dependency substitutions should work in both IntelliJ and Eclipse. The IDEs
+should be able to recognize when an external dependency is replaced with a local project or
+vice versa.
 
-# Feature: Improve the dependency substitution rule DSL
+### Implementation
 
-## Story: Make the DSL for dependency substitution rules more consistent with component selection rules
+No need to add new functionality, this should already work due to the changes in other stories.
 
-### User visible changes
+### Test coverage
 
-```
-configurations.all {
-    resolutionStrategy {
-        dependencies {
-            all { DependencyResolveDetails details -> ... }
-            withModule('org.gradle:foo') { DependencyResolveDetails  details -> ... }
-        }
-    }
-}
-```
-
-### Open issues
-
-- Provide `ModuleDependencyResolveDetails` and `ProjectDependencyResolveDetails` subtypes that allow declaring rules that apply 
-  to only external or project dependencies respectively
-     - For these types, `getRequested()` would be typed for the correct `ComponentSelector` subtype.
-
+- For both IDEA and Eclipse plugins:
+    - external dependency replaced with subproject is shown as project dependency in IDE
+    - transitive external dependency replaced with subproject is shown as project dependency in IDE
+    - subproject replaced with external dependency is shown as external dependency in IDE
 
 ## Story: Declare substitution rules that apply to all resolution for a project
 

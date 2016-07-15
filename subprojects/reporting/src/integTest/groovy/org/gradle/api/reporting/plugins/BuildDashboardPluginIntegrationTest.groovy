@@ -15,7 +15,6 @@
  */
 
 package org.gradle.api.reporting.plugins
-
 import org.gradle.integtests.fixtures.WellBehavedPluginTest
 import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import org.gradle.test.fixtures.file.TestFile
@@ -46,7 +45,7 @@ class BuildDashboardPluginIntegrationTest extends WellBehavedPluginTest {
         buildFile << """
             allprojects {
                 dependencies{
-                    testCompile "junit:junit:4.11"
+                    testCompile "junit:junit:4.12"
                 }
             }
 """

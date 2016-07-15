@@ -16,46 +16,63 @@
 
 package org.gradle.plugin.use.internal;
 
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.gradle.api.Action;
 import org.gradle.api.GradleException;
 import org.gradle.api.Nullable;
 import org.gradle.api.Transformer;
-import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.dsl.RepositoryHandler;
+import org.gradle.api.artifacts.repositories.ArtifactRepository;
 import org.gradle.api.artifacts.repositories.MavenArtifactRepository;
-import org.gradle.api.initialization.dsl.ScriptHandler;
 import org.gradle.api.internal.initialization.ClassLoaderScope;
-import org.gradle.api.internal.plugins.*;
+import org.gradle.api.internal.initialization.ScriptHandlerInternal;
+import org.gradle.api.internal.plugins.ClassloaderBackedPluginDescriptorLocator;
+import org.gradle.api.internal.plugins.PluginDescriptorLocator;
+import org.gradle.api.internal.plugins.PluginImplementation;
+import org.gradle.api.internal.plugins.PluginManagerInternal;
+import org.gradle.api.internal.plugins.PluginRegistry;
 import org.gradle.api.plugins.InvalidPluginException;
 import org.gradle.api.plugins.UnknownPluginException;
 import org.gradle.api.specs.Spec;
 import org.gradle.internal.classpath.ClassPath;
-import org.gradle.internal.classpath.DefaultClassPath;
 import org.gradle.internal.exceptions.LocationAwareException;
+import org.gradle.plugin.repository.internal.PluginRepositoryRegistry;
 import org.gradle.plugin.internal.PluginId;
-import org.gradle.plugin.use.resolve.internal.*;
+import org.gradle.plugin.repository.PluginRepository;
+import org.gradle.plugin.repository.internal.BackedByArtifactRepository;
+import org.gradle.plugin.use.resolve.internal.NotNonCorePluginOnClasspathCheckPluginResolver;
+import org.gradle.plugin.use.resolve.internal.PluginResolution;
+import org.gradle.plugin.use.resolve.internal.PluginResolutionResult;
+import org.gradle.plugin.use.resolve.internal.PluginResolveContext;
+import org.gradle.plugin.use.resolve.internal.PluginResolver;
 
-import java.io.File;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Formatter;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static org.gradle.util.CollectionUtils.any;
 import static org.gradle.util.CollectionUtils.collect;
 
 public class DefaultPluginRequestApplicator implements PluginRequestApplicator {
-
     private final PluginRegistry pluginRegistry;
-    private final PluginResolver pluginResolver;
+    private final PluginResolverFactory pluginResolverFactory;
+    private PluginRepositoryRegistry pluginRepositoryRegistry;
 
-    public DefaultPluginRequestApplicator(PluginRegistry pluginRegistry, PluginResolver pluginResolver) {
+    public DefaultPluginRequestApplicator(PluginRegistry pluginRegistry, PluginResolverFactory pluginResolver, PluginRepositoryRegistry pluginRepositoryRegistry) {
         this.pluginRegistry = pluginRegistry;
-        this.pluginResolver = pluginResolver;
+        this.pluginResolverFactory = pluginResolver;
+        this.pluginRepositoryRegistry = pluginRepositoryRegistry;
     }
 
-    public void applyPlugins(Collection<? extends PluginRequest> requests, final ScriptHandler scriptHandler, @Nullable final PluginManagerInternal target, ClassLoaderScope classLoaderScope) {
+    public void applyPlugins(final PluginRequests requests, final ScriptHandlerInternal scriptHandler, @Nullable final PluginManagerInternal target, ClassLoaderScope classLoaderScope) {
         if (requests.isEmpty()) {
-            defineScriptHandlerClassScope(scriptHandler, classLoaderScope);
+            defineScriptHandlerClassScope(scriptHandler, classLoaderScope, Collections.<PluginImplementation<?>>emptyList());
             return;
         }
 
@@ -74,9 +91,23 @@ public class DefaultPluginRequestApplicator implements PluginRequestApplicator {
         // Could be different to ids in the requests as they may be unqualified
         final Map<Result, PluginId> legacyActualPluginIds = Maps.newLinkedHashMap();
         final Map<Result, PluginImplementation<?>> pluginImpls = Maps.newLinkedHashMap();
+        final Map<Result, PluginImplementation<?>> pluginImplsFromOtherLoaders = Maps.newLinkedHashMap();
 
         if (!results.isEmpty()) {
             final RepositoryHandler repositories = scriptHandler.getRepositories();
+
+            List<ArtifactRepository> pluginArtifactRepositories = new ArrayList<ArtifactRepository>();
+            pluginRepositoryRegistry.lock();
+            for (PluginRepository pluginRepository : pluginRepositoryRegistry.getPluginRepositories()) {
+                if (pluginRepository instanceof BackedByArtifactRepository) {
+                    pluginArtifactRepositories.add(((BackedByArtifactRepository) pluginRepository).createArtifactRepository(repositories));
+                }
+            }
+
+            // The plugin repositories were appended as they were added, but we want them at the front.
+            repositories.removeAll(pluginArtifactRepositories);
+            repositories.addAll(0, pluginArtifactRepositories);
+
             final List<MavenArtifactRepository> mavenRepos = repositories.withType(MavenArtifactRepository.class);
             final Set<String> repoUrls = Sets.newLinkedHashSet();
 
@@ -86,14 +117,24 @@ public class DefaultPluginRequestApplicator implements PluginRequestApplicator {
                     public void run() {
                         result.found.execute(new PluginResolveContext() {
                             public void addLegacy(PluginId pluginId, final String m2RepoUrl, Object dependencyNotation) {
-                                legacyActualPluginIds.put(result, pluginId);
                                 repoUrls.add(m2RepoUrl);
-                                scriptHandler.getDependencies().add(ScriptHandler.CLASSPATH_CONFIGURATION, dependencyNotation);
+                                addLegacy(pluginId, dependencyNotation);
+                            }
+
+                            @Override
+                            public void addLegacy(PluginId pluginId, Object dependencyNotation) {
+                                legacyActualPluginIds.put(result, pluginId);
+                                scriptHandler.addScriptClassPathDependency(dependencyNotation);
                             }
 
                             @Override
                             public void add(PluginImplementation<?> plugin) {
                                 pluginImpls.put(result, plugin);
+                            }
+
+                            @Override
+                            public void addFromDifferentLoader(PluginImplementation<?> plugin) {
+                                pluginImplsFromOtherLoaders.put(result, plugin);
                             }
                         });
                     }
@@ -116,7 +157,7 @@ public class DefaultPluginRequestApplicator implements PluginRequestApplicator {
             }
         }
 
-        defineScriptHandlerClassScope(scriptHandler, classLoaderScope);
+        defineScriptHandlerClassScope(scriptHandler, classLoaderScope, pluginImplsFromOtherLoaders.values());
 
         // We're making an assumption here that the target's plugin registry is backed classLoaderScope.
         // Because we are only build.gradle files right now, this holds.
@@ -126,32 +167,39 @@ public class DefaultPluginRequestApplicator implements PluginRequestApplicator {
             final PluginId id = entry.getValue();
             applyPlugin(request, id, new Runnable() {
                 public void run() {
-                    target.apply(id.toString());
+                    if (request.isApply()) {
+                        target.apply(id.toString());
+                    }
                 }
             });
         }
 
-        for (final Map.Entry<Result, PluginImplementation<?>> entry : pluginImpls.entrySet()) {
+        for (final Map.Entry<Result, PluginImplementation<?>> entry : Iterables.concat(pluginImpls.entrySet(), pluginImplsFromOtherLoaders.entrySet())) {
             final Result result = entry.getKey();
             applyPlugin(result.request, result.found.getPluginId(), new Runnable() {
                 public void run() {
-                    target.apply(entry.getValue());
+                    if (result.request.isApply()) {
+                      target.apply(entry.getValue());
+                    }
                 }
             });
         }
     }
 
-    private void defineScriptHandlerClassScope(ScriptHandler scriptHandler, ClassLoaderScope classLoaderScope) {
-        Configuration classpathConfiguration = scriptHandler.getConfigurations().getByName(ScriptHandler.CLASSPATH_CONFIGURATION);
-        Set<File> files = classpathConfiguration.getFiles();
-        ClassPath classPath = new DefaultClassPath(files);
+    private void defineScriptHandlerClassScope(ScriptHandlerInternal scriptHandler, ClassLoaderScope classLoaderScope, Iterable<PluginImplementation<?>> pluginsFromOtherLoaders) {
+        ClassPath classPath = scriptHandler.getScriptClassPath();
         classLoaderScope.export(classPath);
+
+        for (PluginImplementation<?> pluginImplementation : pluginsFromOtherLoaders) {
+            classLoaderScope.export(pluginImplementation.asClass().getClassLoader());
+        }
+
         classLoaderScope.lock();
     }
 
     private PluginResolver wrapInNotInClasspathCheck(ClassLoaderScope classLoaderScope) {
         PluginDescriptorLocator scriptClasspathPluginDescriptorLocator = new ClassloaderBackedPluginDescriptorLocator(classLoaderScope.getParent().getExportClassLoader());
-        return new NotNonCorePluginOnClasspathCheckPluginResolver(pluginResolver, pluginRegistry, scriptClasspathPluginDescriptorLocator);
+        return new NotNonCorePluginOnClasspathCheckPluginResolver(pluginResolverFactory.create(), pluginRegistry, scriptClasspathPluginDescriptorLocator);
     }
 
     private void applyPlugin(PluginRequest request, PluginId id, Runnable applicator) {
@@ -160,19 +208,19 @@ public class DefaultPluginRequestApplicator implements PluginRequestApplicator {
                 applicator.run();
             } catch (UnknownPluginException e) {
                 throw new InvalidPluginException(
-                        String.format(
-                                "Could not apply requested plugin %s as it does not provide a plugin with id '%s'."
-                                        + " This is caused by an incorrect plugin implementation."
-                                        + " Please contact the plugin author(s).",
-                                request, id
-                        ),
-                        e
+                    String.format(
+                        "Could not apply requested plugin %s as it does not provide a plugin with id '%s'."
+                            + " This is caused by an incorrect plugin implementation."
+                            + " Please contact the plugin author(s).",
+                        request, id
+                    ),
+                    e
                 );
             } catch (Exception e) {
                 throw new InvalidPluginException(String.format("An exception occurred applying plugin request %s", request), e);
             }
         } catch (Exception e) {
-            throw new LocationAwareException(e, request.getScriptSource(), request.getLineNumber());
+            throw new LocationAwareException(e, request.getScriptDisplayName(), request.getLineNumber());
         }
     }
 
@@ -182,14 +230,14 @@ public class DefaultPluginRequestApplicator implements PluginRequestApplicator {
             effectivePluginResolver.resolve(request, result);
         } catch (Exception e) {
             throw new LocationAwareException(
-                    new GradleException(String.format("Error resolving plugin %s", request.getDisplayName()), e),
-                    request.getScriptSource(), request.getLineNumber());
+                new GradleException(String.format("Error resolving plugin %s", request.getDisplayName()), e),
+                request.getScriptDisplayName(), request.getLineNumber());
         }
 
         if (!result.isFound()) {
             String message = buildNotFoundMessage(request, result);
             Exception exception = new UnknownPluginException(message);
-            throw new LocationAwareException(exception, request.getScriptSource(), request.getLineNumber());
+            throw new LocationAwareException(exception, request.getScriptDisplayName(), request.getLineNumber());
         }
 
         return result;

@@ -16,10 +16,8 @@
 
 package org.gradle.api.internal.tasks.compile;
 
-import com.google.common.collect.Lists;
-import org.gradle.api.JavaVersion;
+import com.google.common.base.Joiner;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.internal.file.collections.SimpleFileCollection;
 import org.gradle.api.tasks.compile.CompileOptions;
 import org.gradle.api.tasks.compile.ForkOptions;
 
@@ -28,12 +26,16 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class JavaCompilerArgumentsBuilder {
+    public static final String USE_UNSHARED_COMPILER_TABLE_OPTION = "-XDuseUnsharedTable=true";
+    public static final String EMPTY_SOURCE_PATH_REF_DIR = "emptySourcePathRef";
+
     private final JavaCompileSpec spec;
 
     private boolean includeLauncherOptions;
     private boolean includeMainOptions = true;
     private boolean includeClasspath = true;
     private boolean includeSourceFiles;
+    private boolean includeCustomizations = true;
 
     private List<String> args;
 
@@ -61,6 +63,11 @@ public class JavaCompilerArgumentsBuilder {
         return this;
     }
 
+    public JavaCompilerArgumentsBuilder includeCustomizations(boolean flag) {
+        includeCustomizations = flag;
+        return this;
+    }
+
     public List<String> build() {
         args = new ArrayList<String>();
 
@@ -68,12 +75,29 @@ public class JavaCompilerArgumentsBuilder {
         addMainOptions();
         addClasspath();
         addSourceFiles();
+        addCustomizations();
 
         return args;
     }
 
+    private void addCustomizations() {
+        if (includeCustomizations) {
+            /*This is an internal option, it's used in com.sun.tools.javac.util.Names#createTable(Options options). The -XD backdoor switch is used to set it, as described in a comment
+            in com.sun.tools.javac.main.RecognizedOptions#getAll(OptionHelper helper). This option was introduced in JDK 7 and controls if compiler's name tables should be reused.
+            Without this option being set they are stored in a static list using soft references which can lead to memory pressure and performance deterioration
+            when using the daemon, especially when using small heap and building a large project.
+            Due to a bug (https://builds.gradle.org/viewLog.html?buildId=284033&tab=buildResultsDiv&buildTypeId=Gradle_Master_Performance_PerformanceExperimentsLinux) no instances of
+            SharedNameTable are actually ever reused. It has been fixed for JDK9 and we should consider not using this option with JDK9 as not using it  will quite probably improve the
+            performance of compilation.
+            Using this option leads to significant performance improvements when using daemon and compiling java sources with JDK7 and JDK8.*/
+            args.add(USE_UNSHARED_COMPILER_TABLE_OPTION);
+        }
+    }
+
     private void addLauncherOptions() {
-        if (!includeLauncherOptions) { return; }
+        if (!includeLauncherOptions) {
+            return;
+        }
 
         ForkOptions forkOptions = spec.getCompileOptions().getForkOptions();
         if (forkOptions.getMemoryInitialSize() != null) {
@@ -88,24 +112,29 @@ public class JavaCompilerArgumentsBuilder {
     }
 
     private void addMainOptions() {
-        if (!includeMainOptions) { return; }
-
-        String sourceCompatibility = spec.getSourceCompatibility();
-        if (sourceCompatibility != null && !JavaVersion.current().equals(JavaVersion.toVersion(sourceCompatibility))) {
-            args.add("-source");
-            args.add(sourceCompatibility);
+        if (!includeMainOptions) {
+            return;
         }
-        String targetCompatibility = spec.getTargetCompatibility();
-        if (targetCompatibility != null && !JavaVersion.current().equals(JavaVersion.toVersion(targetCompatibility))) {
-            args.add("-target");
-            args.add(targetCompatibility);
+
+        CompileOptions compileOptions = spec.getCompileOptions();
+        List<String> compilerArgs = compileOptions.getCompilerArgs();
+        if (!releaseOptionIsSet(compilerArgs)) {
+            String sourceCompatibility = spec.getSourceCompatibility();
+            if (sourceCompatibility != null) {
+                args.add("-source");
+                args.add(sourceCompatibility);
+            }
+            String targetCompatibility = spec.getTargetCompatibility();
+            if (targetCompatibility != null) {
+                args.add("-target");
+                args.add(targetCompatibility);
+            }
         }
         File destinationDir = spec.getDestinationDir();
         if (destinationDir != null) {
             args.add("-d");
             args.add(destinationDir.getPath());
         }
-        CompileOptions compileOptions = spec.getCompileOptions();
         if (compileOptions.isVerbose()) {
             args.add("-verbose");
         }
@@ -136,33 +165,46 @@ public class JavaCompilerArgumentsBuilder {
             args.add("-extdirs");
             args.add(compileOptions.getExtensionDirs());
         }
-        if (compileOptions.getCompilerArgs() != null) {
-            args.addAll(compileOptions.getCompilerArgs());
+        FileCollection sourcepath = compileOptions.getSourcepath();
+        Iterable<File> classpath = spec.getClasspath();
+        if ((sourcepath != null && !sourcepath.isEmpty()) || (includeClasspath && (classpath != null && classpath.iterator().hasNext()))) {
+            args.add("-sourcepath");
+            args.add(sourcepath == null ? emptyFolder(spec.getTempDir()) : sourcepath.getAsPath());
+        }
+        if (compilerArgs != null) {
+            args.addAll(compilerArgs);
         }
     }
 
+    private boolean releaseOptionIsSet(List<String> compilerArgs) {
+        return compilerArgs != null && compilerArgs.contains("-release");
+    }
+
+    private String emptyFolder(File parent) {
+        File emptySourcePath = new File(parent, EMPTY_SOURCE_PATH_REF_DIR);
+        emptySourcePath.mkdirs();
+        return emptySourcePath.getAbsolutePath();
+    }
+
     private void addClasspath() {
-        if (!includeClasspath) { return; }
+        if (!includeClasspath) {
+            return;
+        }
 
         Iterable<File> classpath = spec.getClasspath();
         if (classpath != null && classpath.iterator().hasNext()) {
             args.add("-classpath");
-            args.add(toFileCollection(classpath).getAsPath());
+            args.add(Joiner.on(File.pathSeparatorChar).join(classpath));
         }
     }
 
     private void addSourceFiles() {
-        if (!includeSourceFiles) { return; }
+        if (!includeSourceFiles) {
+            return;
+        }
 
         for (File file : spec.getSource()) {
             args.add(file.getPath());
         }
-    }
-
-    private FileCollection toFileCollection(Iterable<File> classpath) {
-        if (classpath instanceof FileCollection) {
-            return (FileCollection) classpath;
-        }
-        return new SimpleFileCollection(Lists.newArrayList(classpath));
     }
 }

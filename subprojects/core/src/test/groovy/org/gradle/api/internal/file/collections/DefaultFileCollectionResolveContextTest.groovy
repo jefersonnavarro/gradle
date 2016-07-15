@@ -15,18 +15,21 @@
  */
 package org.gradle.api.internal.file.collections
 
+import org.gradle.api.Task
+import org.gradle.api.internal.file.FileCollectionInternal
+import org.gradle.api.internal.file.FileResolver
+import org.gradle.api.internal.file.FileTreeInternal
+import org.gradle.api.internal.file.TestFiles
+import org.gradle.api.tasks.TaskDependency
+import org.gradle.api.tasks.TaskOutputs
+import org.gradle.util.UsesNativeServices
+import spock.lang.Specification
+
 import java.util.concurrent.Callable
 
-import org.gradle.api.internal.file.FileResolver
-import org.gradle.api.tasks.TaskDependency
-import spock.lang.Specification
-import org.gradle.api.file.FileTree
-import org.gradle.api.file.FileCollection
-import org.gradle.api.Task
-import org.gradle.api.tasks.TaskOutputs
-
+@UsesNativeServices
 class DefaultFileCollectionResolveContextTest extends Specification {
-    final FileResolver resolver = Mock()
+    final FileResolver resolver = Mock() { getPatternSetFactory() >> TestFiles.getPatternSetFactory() }
     final DefaultFileCollectionResolveContext context = new DefaultFileCollectionResolveContext(resolver)
 
     def resolveAsFileCollectionReturnsEmptyListWhenContextIsEmpty() {
@@ -127,7 +130,7 @@ class DefaultFileCollectionResolveContextTest extends Specification {
     }
 
     def resolveAsFileCollectionsForAFileCollection() {
-        FileCollection fileCollection = Mock()
+        FileCollectionInternal fileCollection = Mock()
 
         when:
         context.add(fileCollection)
@@ -139,7 +142,7 @@ class DefaultFileCollectionResolveContextTest extends Specification {
 
     def resolveAsFileCollectionsDelegatesToACompositeFileCollection() {
         FileCollectionContainer composite = Mock()
-        FileCollection contents = Mock()
+        FileCollectionInternal contents = Mock()
 
         when:
         context.add(composite)
@@ -147,12 +150,12 @@ class DefaultFileCollectionResolveContextTest extends Specification {
 
         then:
         result == [contents]
-        1 * composite.resolve(!null) >> { it[0].add(contents) }
+        1 * composite.visitContents(!null) >> { it[0].add(contents) }
     }
 
     def resolveAsFileTreesDelegatesToACompositeFileCollection() {
         FileCollectionContainer composite = Mock()
-        FileTree contents = Mock()
+        FileTreeInternal contents = Mock()
 
         when:
         context.add(composite)
@@ -160,7 +163,7 @@ class DefaultFileCollectionResolveContextTest extends Specification {
 
         then:
         result == [contents]
-        1 * composite.resolve(!null) >> { it[0].add(contents) }
+        1 * composite.visitContents(!null) >> { it[0].add(contents) }
     }
 
     def resolveAsMinimalFileCollectionsDelegatesToACompositeFileCollection() {
@@ -173,15 +176,15 @@ class DefaultFileCollectionResolveContextTest extends Specification {
 
         then:
         result == [contents]
-        1 * composite.resolve(!null) >> { it[0].add(contents) }
+        1 * composite.visitContents(!null) >> { it[0].add(contents) }
     }
 
     def resolvesCompositeFileCollectionsInDepthwiseOrder() {
         FileCollectionContainer parent1 = Mock()
-        FileCollection child1 = Mock()
+        FileCollectionInternal child1 = Mock()
         FileCollectionContainer parent2 = Mock()
-        FileCollection child2 = Mock()
-        FileCollection child3 = Mock()
+        FileCollectionInternal child2 = Mock()
+        FileCollectionInternal child3 = Mock()
 
         when:
         context.add(parent1)
@@ -190,12 +193,12 @@ class DefaultFileCollectionResolveContextTest extends Specification {
 
         then:
         result == [child1, child2, child3]
-        1 * parent1.resolve(!null) >> { it[0].add(child1); it[0].add(parent2) }
-        1 * parent2.resolve(!null) >> { it[0].add(child2) }
+        1 * parent1.visitContents(!null) >> { it[0].add(child1); it[0].add(parent2) }
+        1 * parent2.visitContents(!null) >> { it[0].add(child2) }
     }
 
     def recursivelyResolvesReturnValueOfAClosure() {
-        FileCollection content = Mock()
+        FileCollectionInternal content = Mock()
 
         when:
         context.add { content }
@@ -215,7 +218,7 @@ class DefaultFileCollectionResolveContextTest extends Specification {
     }
 
     def resolvesTasksOutputsWithEmptyFileCollection() {
-        FileCollection content = Mock()
+        FileCollectionInternal content = Mock()
         TaskOutputs outputs = Mock()
         when:
 
@@ -228,7 +231,7 @@ class DefaultFileCollectionResolveContextTest extends Specification {
     }
 
     def recursivelyResolvesReturnValueOfACallable() {
-        FileCollection content = Mock()
+        FileCollectionInternal content = Mock()
         Callable<?> callable = Mock()
 
         when:
@@ -253,7 +256,7 @@ class DefaultFileCollectionResolveContextTest extends Specification {
     }
 
     def recursivelyResolvesElementsOfAnIterable() {
-        FileCollection content = Mock()
+        FileCollectionInternal content = Mock()
         Iterable<Object> iterable = Mock()
 
         when:
@@ -266,7 +269,7 @@ class DefaultFileCollectionResolveContextTest extends Specification {
     }
 
     def recursivelyResolvesElementsAnArray() {
-        FileCollection content = Mock()
+        FileCollectionInternal content = Mock()
 
         when:
         context.add([content] as Object[])
@@ -312,7 +315,7 @@ class DefaultFileCollectionResolveContextTest extends Specification {
     def resolveAsFileCollectionsResolvesTaskToItsOutputFiles() {
         Task task = Mock()
         TaskOutputs outputs = Mock()
-        FileCollection outputFiles = Mock()
+        FileCollectionInternal outputFiles = Mock()
 
         given:
         _ * task.outputs >> outputs

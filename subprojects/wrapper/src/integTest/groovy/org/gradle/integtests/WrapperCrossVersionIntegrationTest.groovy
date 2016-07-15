@@ -15,74 +15,135 @@
  */
 package org.gradle.integtests
 
+import org.gradle.integtests.fixtures.AvailableJavaHomes
 import org.gradle.integtests.fixtures.CrossVersionIntegrationSpec
 import org.gradle.integtests.fixtures.executer.GradleDistribution
 import org.gradle.integtests.fixtures.executer.GradleExecuter
 import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
+import org.gradle.util.GradleVersion
+import org.gradle.util.Requires
+import org.junit.Assume
+import spock.lang.Unroll
+
+import static org.gradle.integtests.fixtures.daemon.DaemonTestFixture.killIsolatedDaemons
 
 class WrapperCrossVersionIntegrationTest extends CrossVersionIntegrationSpec {
     def setup() {
         requireOwnGradleUserHomeDir()
     }
 
-    public void canUseWrapperFromPreviousVersionToRunCurrentVersion() {
-        expect:
-        checkWrapperWorksWith(previous, current)
+    void canUseWrapperFromPreviousVersionToRunCurrentVersion() {
+        when:
+        GradleExecuter executer = prepareWrapperExecuter(previous, current)
+
+        then:
+        checkWrapperWorksWith(executer, current)
+
+        cleanup:
+        cleanupDaemons(executer, current)
     }
 
-    public void canUseWrapperFromCurrentVersionToRunPreviousVersion() {
-        expect:
-        checkWrapperWorksWith(current, previous)
+    void canUseWrapperFromCurrentVersionToRunPreviousVersion() {
+        when:
+        GradleExecuter executer = prepareWrapperExecuter(current, previous)
+
+        then:
+        checkWrapperWorksWith(executer, previous)
+
+        cleanup:
+        cleanupDaemons(executer, previous)
     }
 
-    void checkWrapperWorksWith(GradleDistribution wrapperGenVersion, GradleDistribution executionVersion) {
-        if (!wrapperGenVersion.wrapperCanExecute(executionVersion.version)) {
-            println "skipping $wrapperGenVersion as its wrapper cannot execute version ${executionVersion.version.version}"
-            return
-        }
+    @Unroll
+    @Requires(adhoc = { AvailableJavaHomes.getJdks("1.5", "1.6") })
+    def 'provides reasonable failure message when attempting to run current Version with previous wrapper under java #jdk.javaVersion'() {
+        when:
+        GradleExecuter executor = prepareWrapperExecuter(previous, current).withJavaHome(jdk.javaHome)
 
-        println "use wrapper from $wrapperGenVersion to build using $executionVersion"
+        then:
+        def result = executor.usingExecutable('gradlew').withArgument('help').runWithFailure()
+        result.assertHasDescription("Gradle ${GradleVersion.current().version} requires Java 7 or later to run. You are currently using Java ${jdk.javaVersion.majorVersion}.")
+
+        where:
+        jdk << AvailableJavaHomes.getJdks("1.5", "1.6")
+    }
+
+    @Unroll
+    @Requires(adhoc = { AvailableJavaHomes.getJdks("1.5", "1.6") })
+    def 'provides reasonable failure message when attempting to run with previous wrapper and the build is configured to use Java #jdk.javaVersion'() {
+        when:
+        GradleExecuter executor = prepareWrapperExecuter(previous, current)
+        file("gradle.properties").writeProperties("org.gradle.java.home": jdk.javaHome.canonicalPath)
+
+        then:
+        def result = executor.usingExecutable('gradlew').withArgument('help').runWithFailure()
+        result.assertHasDescription("Gradle ${GradleVersion.current().version} requires Java 7 or later to run. Your build is currently configured to use Java ${jdk.javaVersion.majorVersion}.")
+
+        where:
+        jdk << AvailableJavaHomes.getJdks("1.5", "1.6")
+    }
+
+    private GradleExecuter prepareWrapperExecuter(GradleDistribution wrapperVersion, GradleDistribution executionVersion) {
+        Assume.assumeTrue("skipping $wrapperVersion as its wrapper cannot execute version ${executionVersion.version.version}", wrapperVersion.wrapperCanExecute(executionVersion.version))
+
+        println "use wrapper from $wrapperVersion to build using $executionVersion"
 
         buildFile << """
 
 task wrapper(type: Wrapper) {
     gradleVersion = '$executionVersion.version.version'
-}
-
-if (wrapper.hasProperty('urlRoot')) {
-    println "configuring the wrapper using the old way: 'urlRoot'..."
-    wrapper.urlRoot = '${executionVersion.binDistribution.parentFile.toURI()}'
-} else {
-    println "configuring the wrapper using the new way: 'distributionUrl'..."
-    wrapper.distributionUrl = '${executionVersion.binDistribution.toURI()}'
+    distributionUrl = '${executionVersion.binDistribution.toURI()}'
 }
 
 println "using Java version \${System.getProperty('java.version')}"
 
 task hello {
-    doLast { println "hello from \$gradle.gradleVersion" }
+    doLast {
+        println "hello from \$gradle.gradleVersion"
+        println "using distribution at \$gradle.gradleHomeDir"
+        println "using Gradle user home at \$gradle.gradleUserHomeDir"
+    }
 }
 """
-        version(wrapperGenVersion).withTasks('wrapper').run()
-        def result = version(wrapperGenVersion).usingExecutable('gradlew').withTasks('hello').run()
-        assert result.output.contains("hello from $executionVersion.version.version")
+        version(wrapperVersion).withTasks('wrapper').run()
+
+        def executer = wrapperExecuter(wrapperVersion)
+        executer
     }
 
-    GradleExecuter version(GradleDistribution dist) {
-        def executer = super.version(dist)
+    GradleExecuter wrapperExecuter(GradleDistribution wrapper) {
+        def executer = super.version(wrapper)
+
+        if (!wrapper.supportsSpacesInGradleAndJavaOpts) {
+            // Don't use the test-specific location as this contains spaces
+            executer.withGradleUserHomeDir(new IntegrationTestBuildContext().gradleUserHomeDir)
+        }
+
         /**
          * We additionally pass the gradle user home as a system property.
-         * Early gradle wrapper (< 1.7 don't honor --gradle-user-home command line option correctly
+         * Early gradle wrapper versions (< 1.7) don't honor the --gradle-user-home command line option correctly
          * and leaking gradle dist under test into ~/.gradle/wrapper.
          */
-        if (!dist.wrapperSupportsGradleUserHomeCommandLineOption) {
-            if (!dist.supportsSpacesInGradleAndJavaOpts) {
-                // Don't use the test-specific location as this contains spaces
-                executer.withGradleUserHomeDir(new IntegrationTestBuildContext().gradleUserHomeDir)
-            }
-            executer.withGradleOpts("-Dgradle.user.home=${executer.gradleUserHomeDir}")
+        if (!wrapper.wrapperSupportsGradleUserHomeCommandLineOption) {
+            executer.withCommandLineGradleOpts("-Dgradle.user.home=${executer.gradleUserHomeDir}")
         }
+
+        // Use isolated daemons in order to verify that using the installed distro works, and so that the daemons aren't visible to other tests, because
+        // the installed distro is deleted at the end of this test
+        executer.requireIsolatedDaemons()
         return executer
+    }
+
+    void checkWrapperWorksWith(GradleExecuter executer, GradleDistribution executionVersion) {
+        def result = executer.usingExecutable('gradlew').withTasks('hello').run()
+
+        assert result.output.contains("hello from $executionVersion.version.version")
+        assert result.output.contains("using distribution at ${executer.gradleUserHomeDir.file("wrapper/dists")}")
+        assert result.output.contains("using Gradle user home at $executer.gradleUserHomeDir")
+    }
+
+    static void cleanupDaemons(GradleExecuter executer, GradleDistribution executionVersion) {
+        killIsolatedDaemons(executer, executionVersion.version)
     }
 }
 

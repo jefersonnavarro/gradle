@@ -15,20 +15,17 @@
  */
 package org.gradle.api.plugins.quality
 
-import org.gradle.api.internal.project.DefaultProject
 import org.gradle.api.plugins.JavaBasePlugin
 import org.gradle.api.plugins.JavaPlugin
 import org.gradle.api.plugins.ReportingBasePlugin
 import org.gradle.api.tasks.SourceSet
-import org.gradle.util.TestUtil
-import spock.lang.Specification
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
 import static org.gradle.api.tasks.TaskDependencyMatchers.dependsOn
 import static org.hamcrest.Matchers.*
 import static spock.util.matcher.HamcrestSupport.that
 
-class FindBugsPluginTest extends Specification {
-    DefaultProject project = TestUtil.createRootProject()
+class FindBugsPluginTest extends AbstractProjectBuilderSpec {
 
     def setup() {
         project.pluginManager.apply(FindBugsPlugin)
@@ -100,6 +97,7 @@ class FindBugsPluginTest extends Specification {
             excludeFilter == null
             includeFilter == null
             excludeBugsFilter == null
+            extraArgs == null
         }
     }
 
@@ -126,6 +124,7 @@ class FindBugsPluginTest extends Specification {
             excludeFilter == null
             includeFilter == null
             excludeBugsFilter == null
+            extraArgs == null
         }
     }
 
@@ -160,6 +159,7 @@ class FindBugsPluginTest extends Specification {
             includeFilter = new File("include.txt")
             excludeFilter = new File("exclude.txt")
             excludeBugsFilter = new File("baselineBugs.txt")
+            extraArgs = [ '-adjustPriority', 'DM_CONVERT_CASE=raise,DM_CONVERT_CASE=raise']
         }
 
         expect:
@@ -189,9 +189,10 @@ class FindBugsPluginTest extends Specification {
             includeFilter == project.file("include.txt")
             excludeFilter == project.file("exclude.txt")
             excludeBugsFilter == project.file("baselineBugs.txt")
+            extraArgs == [ '-adjustPriority', 'DM_CONVERT_CASE=raise,DM_CONVERT_CASE=raise' ]
         }
     }
-    
+
     def "can customize any additional FindBugs tasks via extension"() {
         def task = project.tasks.create("findbugsCustom", FindBugs)
         project.findbugs {
@@ -204,6 +205,7 @@ class FindBugsPluginTest extends Specification {
             includeFilterConfig = project.resources.text.fromFile("include.txt")
             excludeFilterConfig = project.resources.text.fromFile("exclude.txt")
             excludeBugsFilterConfig = project.resources.text.fromFile("baselineBugs.txt")
+            extraArgs = [ '-adjustPriority', 'DM_CONVERT_CASE=raise,DM_CONVERT_CASE=raise' ]
         }
 
         expect:
@@ -226,6 +228,7 @@ class FindBugsPluginTest extends Specification {
             includeFilter == project.file("include.txt")
             excludeFilter == project.file("exclude.txt")
             excludeBugsFilter == project.file("baselineBugs.txt")
+            extraArgs == [ '-adjustPriority', 'DM_CONVERT_CASE=raise,DM_CONVERT_CASE=raise' ]
         }
     }
 

@@ -15,7 +15,8 @@
  */
 package org.gradle.api.internal.artifacts.repositories
 import org.gradle.api.InvalidUserDataException
-import org.gradle.api.internal.artifacts.ivyservice.ivyresolve.strategy.ResolverStrategy
+import org.gradle.api.artifacts.repositories.AuthenticationContainer
+import org.gradle.api.internal.artifacts.ivyservice.IvyContextManager
 import org.gradle.api.internal.artifacts.repositories.resolver.IvyResolver
 import org.gradle.api.internal.artifacts.repositories.transport.RepositoryTransport
 import org.gradle.api.internal.artifacts.repositories.transport.RepositoryTransportFactory
@@ -24,7 +25,7 @@ import org.gradle.api.internal.filestore.ivy.ArtifactIdentifierFileStore
 import org.gradle.internal.reflect.DirectInstantiator
 import org.gradle.internal.resource.local.LocallyAvailableResourceFinder
 import org.gradle.internal.resource.transport.ExternalResourceRepository
-import org.gradle.logging.ProgressLoggerFactory
+import org.gradle.internal.logging.progress.ProgressLoggerFactory
 import spock.lang.Specification
 
 class DefaultIvyArtifactRepositoryTest extends Specification {
@@ -33,12 +34,13 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
     final LocallyAvailableResourceFinder locallyAvailableResourceFinder = Mock()
     final ExternalResourceRepository resourceRepository = Mock()
     final ProgressLoggerFactory progressLoggerFactory = Mock()
-    final ResolverStrategy resolverStrategy = Stub()
     final ArtifactIdentifierFileStore artifactIdentifierFileStore = Stub()
+    final AuthenticationContainer authenticationContainer = Stub()
+    final ivyContextManager = Mock(IvyContextManager)
 
     final DefaultIvyArtifactRepository repository = new DefaultIvyArtifactRepository(
             fileResolver, transportFactory, locallyAvailableResourceFinder,
-            new DirectInstantiator(), resolverStrategy, artifactIdentifierFileStore
+            DirectInstantiator.INSTANCE, artifactIdentifierFileStore, authenticationContainer, ivyContextManager
     )
 
     def "default values"() {
@@ -56,7 +58,7 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
         given:
         fileResolver.resolveUri('http://host/') >> new URI('http://host/')
         fileResolver.resolveUri('http://other/') >> new URI('http://other/')
-        transportFactory.createTransport({ it == ['http'] as Set}, 'name', null) >> transport()
+        transportFactory.createTransport({ it == ['http'] as Set}, 'name', _) >> transport()
 
 
         when:
@@ -82,7 +84,7 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
 
         given:
         fileResolver.resolveUri('repo/') >> fileUri
-        transportFactory.createTransport({ it == ['file'] as Set}, 'name', null) >> transport()
+        transportFactory.createTransport({ it == ['file'] as Set}, 'name', _) >> transport()
 
         when:
         def resolver = repository.createResolver()
@@ -104,7 +106,7 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
 
         given:
         fileResolver.resolveUri('http://host') >> new URI('http://host/')
-        transportFactory.createTransport({ it == ['http'] as Set}, 'name', null) >> transport()
+        transportFactory.createTransport({ it == ['http'] as Set}, 'name', _) >> transport()
 
         when:
         def resolver = repository.createResolver()
@@ -125,7 +127,7 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
 
         given:
         fileResolver.resolveUri('http://host') >> new URI('http://host/')
-        transportFactory.createTransport({ it == ['http'] as Set}, 'name', null) >> transport()
+        transportFactory.createTransport({ it == ['http'] as Set}, 'name', _) >> transport()
 
         when:
         def resolver = repository.createResolver()
@@ -147,7 +149,7 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
 
         given:
         fileResolver.resolveUri('http://host') >> new URI('http://host/')
-        transportFactory.createTransport({ it == ['http'] as Set}, 'name', null) >> transport()
+        transportFactory.createTransport({ it == ['http'] as Set}, 'name', _) >> transport()
 
         when:
         def resolver = repository.createResolver()
@@ -173,7 +175,7 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
 
         given:
         fileResolver.resolveUri('http://host') >> new URI('http://host/')
-        transportFactory.createTransport({ it == ['http'] as Set}, 'name', null) >> transport()
+        transportFactory.createTransport({ it == ['http'] as Set}, 'name', _) >> transport()
 
         when:
         def resolver = repository.createResolver()
@@ -200,7 +202,7 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
 
         given:
         fileResolver.resolveUri('http://host') >> new URI('http://host/')
-        transportFactory.createTransport({ it == ['http'] as Set}, 'name', null) >> transport()
+        transportFactory.createTransport({ it == ['http'] as Set}, 'name', _) >> transport()
 
         when:
         def resolver = repository.createResolver()
@@ -224,7 +226,7 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
 
         given:
         fileResolver.resolveUri('http://host/') >> new URI('http://host/')
-        transportFactory.createTransport({ it == ['http'] as Set}, 'name', null) >> transport()
+        transportFactory.createTransport({ it == ['http'] as Set}, 'name', _) >> transport()
 
         when:
         def resolver = repository.createResolver()
@@ -246,7 +248,7 @@ class DefaultIvyArtifactRepositoryTest extends Specification {
             artifact '[layoutPattern]'
         }
         repository.artifactPattern 'http://other/[additionalPattern]'
-        transportFactory.createTransport({ it == ['http'] as Set}, 'name', null) >> transport()
+        transportFactory.createTransport({ it == ['http'] as Set}, 'name', _) >> transport()
 
         given:
         fileResolver.resolveUri('http://host') >> new URI('http://host')

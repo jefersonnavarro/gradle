@@ -15,35 +15,30 @@
  */
 
 package org.gradle.internal.resource.transport.aws.s3;
-import org.gradle.internal.resource.AbstractExternalResource;
+
+import com.amazonaws.services.s3.model.ObjectMetadata;
+import com.amazonaws.services.s3.model.S3Object;
 import org.gradle.internal.resource.metadata.DefaultExternalResourceMetaData;
 import org.gradle.internal.resource.metadata.ExternalResourceMetaData;
-import org.jets3t.service.ServiceException;
-import org.jets3t.service.model.S3Object;
+import org.gradle.internal.resource.transfer.ExternalResourceReadResponse;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.util.Date;
 
-public class S3Resource extends AbstractExternalResource {
+public class S3Resource implements ExternalResourceReadResponse {
 
     private final S3Object s3Object;
     private final URI uri;
 
     public S3Resource(S3Object s3Object, URI uri) {
         this.s3Object = s3Object;
-        this.s3Object.getContentLength();
         this.uri = uri;
     }
 
-    @Override
-    protected InputStream openStream() throws IOException {
-        try{
-            return s3Object.getDataInputStream();
-        }catch (ServiceException e){
-            throw new IOException(e.getMessage());
-        }
+    public InputStream openStream() throws IOException {
+        return s3Object.getObjectContent();
     }
 
     public URI getURI() {
@@ -51,7 +46,7 @@ public class S3Resource extends AbstractExternalResource {
     }
 
     public long getContentLength() {
-        return s3Object.getContentLength();
+        return s3Object.getObjectMetadata().getContentLength();
     }
 
     public boolean isLocal() {
@@ -59,12 +54,18 @@ public class S3Resource extends AbstractExternalResource {
     }
 
     public ExternalResourceMetaData getMetaData() {
-        Date lastModified = s3Object.getLastModifiedDate();
-        DefaultExternalResourceMetaData defaultExternalResourceMetaData = new DefaultExternalResourceMetaData(uri,
+        ObjectMetadata objectMetadata = s3Object.getObjectMetadata();
+        Date lastModified = objectMetadata.getLastModified();
+        return new DefaultExternalResourceMetaData(uri,
                 lastModified.getTime(),
                 getContentLength(),
-                s3Object.getETag(),
+                s3Object.getObjectMetadata().getContentType(),
+                s3Object.getObjectMetadata().getETag(),
                 null); // Passing null for sha1 - TODO - consider using the etag which is an MD5 hash of the file (when less than 5Gb)
-        return defaultExternalResourceMetaData;
+    }
+
+    @Override
+    public void close() throws IOException {
+        s3Object.close();
     }
 }

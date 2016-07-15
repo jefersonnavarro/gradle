@@ -109,6 +109,11 @@ task filter(type: Copy) {
     filter { String line ->
         "[$line]"
     }
+    // Use a closure to remove lines
+    filter { String line ->
+        line.startsWith('-') ? null : line
+    }
+    filteringCharset = 'UTF-8'
 }
 // END SNIPPET filter-files
 

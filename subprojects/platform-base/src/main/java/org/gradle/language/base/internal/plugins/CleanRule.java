@@ -24,7 +24,7 @@ import org.gradle.api.tasks.TaskContainer;
 
 public class CleanRule implements Rule {
 
-    public static final String PREFIX = "clean";
+    public static final String CLEAN = "clean";
 
     private final TaskContainer tasks;
 
@@ -32,21 +32,22 @@ public class CleanRule implements Rule {
         this.tasks = tasks;
     }
 
+    @Override
     public String getDescription() {
-        return String.format("Pattern: %s<TaskName>: Cleans the output files of a task.", PREFIX);
+        return "Pattern: " + CLEAN + "<TaskName>: Cleans the output files of a task.";
     }
 
     @Override
     public String toString() {
-        return String.format("Rule: %s", getDescription());
+        return "Rule: " + getDescription();
     }
 
+    @Override
     public void apply(String taskName) {
-        if (!taskName.startsWith(PREFIX)) {
+        if (!taskName.startsWith(CLEAN) || taskName.equals(CLEAN)) {
             return;
         }
-
-        String targetTaskName = taskName.substring(PREFIX.length());
+        String targetTaskName = taskName.substring(CLEAN.length());
         if (Character.isLowerCase(targetTaskName.charAt(0))) {
             return;
         }

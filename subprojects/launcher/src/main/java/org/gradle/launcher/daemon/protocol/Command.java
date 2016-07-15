@@ -15,13 +15,23 @@
  */
 package org.gradle.launcher.daemon.protocol;
 
-import java.io.Serializable;
-
-public class Command implements Serializable {
+/**
+ * Represents the initial message sent to the daemon, requesting that the daemon do some work.
+ */
+public class Command extends Message {
     private final Object identifier;
+    private final byte[] token;
 
-    public Command(Object identifier) {
+    public Command(Object identifier, byte[] token) {
         this.identifier = identifier;
+        this.token = token;
+    }
+
+    /**
+     * Returns the authentication token for this command.
+     */
+    public byte[] getToken() {
+        return token;
     }
 
     /**
@@ -33,6 +43,6 @@ public class Command implements Serializable {
 
     @Override
     public String toString() {
-        return String.format("%s[id=%s]", getClass().getSimpleName(), identifier);
+        return getClass().getSimpleName() + "[id=" + identifier + "]";
     }
 }

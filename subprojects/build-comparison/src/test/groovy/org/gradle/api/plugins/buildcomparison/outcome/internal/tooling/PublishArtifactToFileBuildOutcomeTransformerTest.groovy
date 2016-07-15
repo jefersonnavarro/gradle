@@ -21,21 +21,21 @@ import org.gradle.api.artifacts.PublishArtifact
 import org.gradle.api.internal.artifacts.publish.ArchivePublishArtifact
 import org.gradle.api.plugins.buildcomparison.outcome.internal.FileOutcomeIdentifier
 import org.gradle.api.tasks.TaskDependency
+import org.gradle.api.tasks.bundling.AbstractArchiveTask
+import org.gradle.api.tasks.bundling.Tar
+import org.gradle.api.tasks.bundling.War
+import org.gradle.api.tasks.bundling.Zip
+import org.gradle.jvm.tasks.Jar
 import org.gradle.plugins.ear.Ear
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 import org.gradle.tooling.model.internal.outcomes.GradleFileBuildOutcome
-import spock.lang.Specification
 import spock.lang.Unroll
-import org.gradle.api.tasks.bundling.*
 
 import static org.gradle.api.plugins.buildcomparison.outcome.internal.FileOutcomeIdentifier.*
-import org.gradle.util.TestUtil
-import org.gradle.api.Project
 
-class PublishArtifactToFileBuildOutcomeTransformerTest extends Specification {
+class PublishArtifactToFileBuildOutcomeTransformerTest extends AbstractProjectBuilderSpec {
 
     def transformer = new PublishArtifactToFileBuildOutcomeTransformer()
-
-    Project project = TestUtil.createRootProject()
 
     @Unroll
     "can create outcome for #taskClass archive artifact"(Class<? extends AbstractArchiveTask> taskClass, FileOutcomeIdentifier typeIdentifier) {

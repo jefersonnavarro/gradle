@@ -32,6 +32,7 @@ public class GroupsJavadocOptionFileOption extends AbstractJavadocOptionFileOpti
         super(option, new LinkedHashMap<String, List<String>>());
     }
 
+    @Override
     public void write(JavadocOptionFileWriterContext writerContext) throws IOException {
         if (value != null && !value.isEmpty()) {
             for (final String group : value.keySet()) {
@@ -39,19 +40,9 @@ public class GroupsJavadocOptionFileOption extends AbstractJavadocOptionFileOpti
 
                 writerContext
                     .writeOptionHeader(option)
-                    .write(
-                        new StringBuffer()
-                            .append("\"")
-                            .append(group)
-                            .append("\"")
-                            .toString())
+                    .write("\"" + group + "\"")
                     .write(" ")
-                    .write(
-                        new StringBuffer()
-                            .append("\"")
-                            .append(CollectionUtils.join(":", groupPackages))
-                            .append("\"")
-                            .toString())
+                    .write("\"" + CollectionUtils.join(":", groupPackages) + "\"")
                     .newLine();
             }
         }

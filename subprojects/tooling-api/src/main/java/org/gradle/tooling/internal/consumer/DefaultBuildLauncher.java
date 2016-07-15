@@ -15,6 +15,7 @@
  */
 package org.gradle.tooling.internal.consumer;
 
+import org.gradle.api.Transformer;
 import org.gradle.tooling.BuildLauncher;
 import org.gradle.tooling.ResultHandler;
 import org.gradle.tooling.internal.consumer.async.AsyncConsumerActionExecutor;
@@ -27,11 +28,12 @@ import org.gradle.tooling.model.Task;
 import java.util.Arrays;
 import java.util.Collections;
 
-class DefaultBuildLauncher extends AbstractLongRunningOperation<DefaultBuildLauncher> implements BuildLauncher {
-    private final AsyncConsumerActionExecutor connection;
+public class DefaultBuildLauncher extends AbstractLongRunningOperation<DefaultBuildLauncher> implements BuildLauncher {
+    protected final AsyncConsumerActionExecutor connection;
 
     public DefaultBuildLauncher(AsyncConsumerActionExecutor connection, ConnectionParameters parameters) {
         super(parameters);
+        operationParamsBuilder.setEntryPoint("BuildLauncher API");
         operationParamsBuilder.setTasks(Collections.<String>emptyList());
         this.connection = connection;
     }
@@ -61,8 +63,12 @@ class DefaultBuildLauncher extends AbstractLongRunningOperation<DefaultBuildLaun
     }
 
     public BuildLauncher forLaunchables(Iterable<? extends Launchable> launchables) {
+        preprocessLaunchables(launchables);
         operationParamsBuilder.setLaunchables(launchables);
         return this;
+    }
+
+    protected void preprocessLaunchables(Iterable<? extends Launchable> launchables) {
     }
 
     public void run() {
@@ -72,26 +78,28 @@ class DefaultBuildLauncher extends AbstractLongRunningOperation<DefaultBuildLaun
     }
 
     public void run(final ResultHandler<? super Void> handler) {
-        final ConsumerOperationParameters operationParameters = operationParamsBuilder.setParameters(connectionParameters).build();
+        final ConsumerOperationParameters operationParameters = getConsumerOperationParameters();
+
         connection.run(new ConsumerAction<Void>() {
             public ConsumerOperationParameters getParameters() {
                 return operationParameters;
             }
 
             public Void run(ConsumerConnection connection) {
-                return connection.run(Void.class, operationParameters);
+                Void sink = connection.run(Void.class, operationParameters);
+                return sink;
             }
         }, new ResultHandlerAdapter(handler));
     }
 
     private class ResultHandlerAdapter extends org.gradle.tooling.internal.consumer.ResultHandlerAdapter<Void> {
         public ResultHandlerAdapter(ResultHandler<? super Void> handler) {
-            super(handler);
-        }
-
-        @Override
-        protected String connectionFailureMessage(Throwable failure) {
-            return String.format("Could not execute build using %s.", connection.getDisplayName());
+            super(handler, new ExceptionTransformer(new Transformer<String, Throwable>() {
+                @Override
+                public String transform(Throwable throwable) {
+                    return String.format("Could not execute build using %s.", connection.getDisplayName());
+                }
+            }));
         }
     }
 }

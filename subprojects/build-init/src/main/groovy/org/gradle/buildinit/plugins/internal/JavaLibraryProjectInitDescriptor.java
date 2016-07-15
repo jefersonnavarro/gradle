@@ -18,27 +18,63 @@ package org.gradle.buildinit.plugins.internal;
 
 import org.gradle.api.internal.file.FileResolver;
 import org.gradle.util.GUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import static org.gradle.buildinit.plugins.internal.BuildInitTestFramework.SPOCK;
+import static org.gradle.buildinit.plugins.internal.BuildInitTestFramework.TESTNG;
 
 public class JavaLibraryProjectInitDescriptor extends LanguageLibraryProjectInitDescriptor {
+    private static final Logger LOGGER = LoggerFactory.getLogger(JavaLibraryProjectInitDescriptor.class);
 
     public JavaLibraryProjectInitDescriptor(TemplateOperationFactory templateOperationFactory,
                                             FileResolver fileResolver,
                                             TemplateLibraryVersionProvider libraryVersionProvider,
-                                            TemplateOperation delegate) {
-        super("java", templateOperationFactory, fileResolver);
+                                            ProjectInitDescriptor globalSettingsDescriptor) {
+        super("java", templateOperationFactory, fileResolver, libraryVersionProvider, globalSettingsDescriptor);
+    }
 
-        register(delegate);
-
-        register(templateOperationFactory.newTemplateOperation()
-                .withTemplate("javalibrary/build.gradle.template")
-                .withTarget("build.gradle")
-                .withDocumentationBindings(GUtil.map("ref_userguide_java_tutorial", "tutorial_java_projects"))
-                .withBindings(GUtil.map("junitVersion", libraryVersionProvider.getVersion("junit")))
-                .create()
-        );
-
+    @Override
+    public void generate(BuildInitTestFramework testFramework) {
+        globalSettingsDescriptor.generate(testFramework);
+        templateOperationFactory.newTemplateOperation()
+            .withTemplate(gradleBuildTemplate(testFramework))
+            .withTarget("build.gradle")
+            .withDocumentationBindings(GUtil.map("ref_userguide_java_tutorial", "tutorial_java_projects"))
+            .withBindings(GUtil.map("junitVersion", libraryVersionProvider.getVersion("junit")))
+            .withBindings(GUtil.map("slf4jVersion", libraryVersionProvider.getVersion("slf4j")))
+            .withBindings(GUtil.map("groovyVersion", libraryVersionProvider.getVersion("groovy")))
+            .withBindings(GUtil.map("spockVersion", libraryVersionProvider.getVersion("spock")))
+            .withBindings(GUtil.map("testngVersion", libraryVersionProvider.getVersion("testng")))
+            .create().generate();
         TemplateOperation javalibraryTemplateOperation = fromClazzTemplate("javalibrary/Library.java.template", "main");
-        TemplateOperation javalibraryTestTemplateOperation = fromClazzTemplate("javalibrary/LibraryTest.java.template", "test");
-        register(whenNoSourcesAvailable(javalibraryTemplateOperation, javalibraryTestTemplateOperation));
+        whenNoSourcesAvailable(javalibraryTemplateOperation, testTemplateOperation(testFramework)).generate();
+    }
+
+    private String gradleBuildTemplate(BuildInitTestFramework testFramework) {
+        switch (testFramework) {
+            case SPOCK:
+                return "javalibrary/spock-build.gradle.template";
+            case TESTNG:
+                return "javalibrary/testng-build.gradle.template";
+            default:
+                return "javalibrary/build.gradle.template";
+        }
+    }
+
+    private TemplateOperation testTemplateOperation(BuildInitTestFramework testFramework) {
+        switch (testFramework) {
+            case SPOCK:
+                return fromClazzTemplate("groovylibrary/LibraryTest.groovy.template", "test", "groovy");
+            case TESTNG:
+                return fromClazzTemplate("javalibrary/LibraryTestNG.java.template", "test", "java", "LibraryTest.java");
+            default:
+                return fromClazzTemplate("javalibrary/LibraryTest.java.template", "test");
+        }
+    }
+
+    @Override
+    public boolean supports(BuildInitTestFramework testFramework) {
+        return testFramework == SPOCK || testFramework == TESTNG;
     }
 }

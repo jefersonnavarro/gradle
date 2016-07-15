@@ -154,7 +154,8 @@ class ComponentSelectionRulesErrorHandlingIntegTest extends AbstractComponentSel
         failureDescriptionStartsWith("A problem occurred evaluating root project")
         failure.assertHasFileName("Build file '$buildFile.path'")
         failure.assertHasLineNumber(13)
-        failureHasCause("Type BadRuleSource is not a valid model rule source: \n- first parameter of rule method 'select' must be of type org.gradle.api.artifacts.ComponentSelection")
+        failureHasCause("""Type BadRuleSource is not a valid rule source:
+- Method select(java.lang.String) is not a valid rule method: First parameter of a rule method must be of type org.gradle.api.artifacts.ComponentSelection""")
     }
 
     def "produces sensible error when rule source throws an exception" () {
@@ -192,5 +193,93 @@ class ComponentSelectionRulesErrorHandlingIntegTest extends AbstractComponentSel
         failure.assertHasLineNumber(30)
         failure.assertHasCause("There was an error while evaluating a component selection rule for org.utils:api:1.2.")
         failure.assertHasCause("java.lang.Exception: thrown from rule")
+    }
+
+    def "reports missing module when component selection rule requires meta-data"() {
+        buildFile << """
+${httpBaseBuildFile}
+configurations {
+    conf {
+        resolutionStrategy.componentSelection {
+            all { ComponentSelection selection, ComponentMetadata metadata ->
+            }
+        }
+    }
+}
+dependencies {
+    conf "org.utils:api:+"
+}
+"""
+
+        when:
+        def dirList = ivyHttpRepo.directoryList("org.utils", "api")
+        def module21 = ivyHttpRepo.module("org.utils", "api", "2.1")
+        dirList.expectGet()
+        module21.ivy.expectGetMissing()
+        module21.jar.expectHeadMissing()
+
+        then:
+        fails "resolveConf"
+        failure.assertHasCause("""Could not find any matches for org.utils:api:+ as no versions of org.utils:api are available.
+Searched in the following locations:
+    ${dirList.uri}
+    ${module21.ivy.uri}
+    ${module21.jar.uri}
+Required by:
+""")
+
+        when:
+        server.resetExpectations()
+        module21.ivy.expectGet()
+        module21.jar.expectGet()
+
+        then:
+        succeeds "resolveConf"
+    }
+
+    def "reports broken module when component selection rule requires meta-data"() {
+        buildFile << """
+${httpBaseBuildFile}
+configurations {
+    conf {
+        resolutionStrategy.componentSelection {
+            all { ComponentSelection selection, ComponentMetadata metadata ->
+            }
+        }
+    }
+}
+dependencies {
+    conf "org.utils:api:+"
+}
+"""
+
+        when:
+        def dirList = ivyHttpRepo.directoryList("org.utils", "api")
+        def module21 = ivyHttpRepo.module("org.utils", "api", "2.1")
+        dirList.expectGet()
+        module21.ivy.expectGetBroken()
+
+        then:
+        fails "resolveConf"
+        failure.assertHasCause("Could not resolve org.utils:api:+.")
+        failure.assertHasCause("Could not resolve org.utils:api:2.1.")
+        failure.assertHasCause("Could not GET '${module21.ivy.uri}'. Received status code 500 from server: broken")
+
+        when:
+        server.resetExpectations()
+        module21.ivy.expectGet()
+        module21.jar.expectGetBroken()
+
+        then:
+        fails "resolveConf"
+        failure.assertHasCause("Could not download api.jar (org.utils:api:2.1)")
+        failure.assertHasCause("Could not GET '${module21.jar.uri}'. Received status code 500 from server: broken")
+
+        when:
+        server.resetExpectations()
+        module21.jar.expectGet()
+
+        then:
+        succeeds "resolveConf"
     }
 }

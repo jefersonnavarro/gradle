@@ -17,30 +17,26 @@
 package org.gradle.model.managed
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.util.Matchers
 
-class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec{
+class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec {
 
     def "provides a useful error message when setting an incompatible type on a managed instance in Groovy"() {
         when:
         buildScript '''
-            import org.gradle.model.*
-            import org.gradle.model.collection.*
-
             @Managed
             interface Person {
-                String getName()
-                void setName(String name)
+                int getThumbCount()
+                void setThumbCount(int c)
             }
 
             class RulePlugin extends RuleSource {
                 @Model
                 void createPerson(Person person) {
-                    person.setName(123)
+                    person.setThumbCount(person)
                 }
 
                 @Mutate
-                void addDependencyOnPerson(CollectionBuilder<Task> tasks, Person person) {
+                void addDependencyOnPerson(ModelMap<Task> tasks, Person person) {
                 }
             }
 
@@ -52,7 +48,7 @@ class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec{
 
         and:
         failure.assertHasCause("Exception thrown while executing model rule: RulePlugin#createPerson(Person)")
-        failure.assertThatCause(Matchers.containsLine(Matchers.matchesRegexp(/No signature of method: .*\.setName\(\) is applicable for argument types: \(java.lang.Integer\) values: \[123\]/)))
+        failure.assertHasCause("Cannot convert the provided notation to an object of type int")
     }
 
     def "provides a useful error message when setting an incompatible type on a managed instance in Java"() {
@@ -60,7 +56,6 @@ class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec{
         file('buildSrc/src/main/java/Rules.java') << '''
             import org.gradle.api.*;
             import org.gradle.model.*;
-            import org.gradle.model.collection.*;
             import java.lang.reflect.*;
 
             @Managed
@@ -77,7 +72,7 @@ class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec{
                 }
 
                 @Mutate
-                void addDependencyOnPerson(CollectionBuilder<Task> tasks, Person person) {
+                void addDependencyOnPerson(ModelMap<Task> tasks, Person person) {
                 }
             }
         '''
@@ -96,9 +91,6 @@ class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec{
     def "cannot assign a non-managed instance to a property of a managed type"() {
         when:
         buildScript '''
-            import org.gradle.model.*
-            import org.gradle.model.collection.*
-
             @Managed
             interface Platform {
                 OperatingSystem getOperatingSystem()
@@ -117,17 +109,19 @@ class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec{
                 }
 
                 @Mutate
-                void addDependencyOnPlatform(CollectionBuilder<Task> tasks, Platform platform) {
+                void addDependencyOnPlatform(ModelMap<Task> tasks, Platform platform) {
                 }
             }
 
             apply type: RulePlugin
 
+            class OperatingSystemImpl implements OperatingSystem {
+                String name
+            }
+
             model {
                 platform {
-                    operatingSystem = new OperatingSystem() {
-                        String name
-                    }
+                    operatingSystem = new OperatingSystemImpl()
                 }
             }
         '''
@@ -136,16 +130,13 @@ class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec{
         fails "tasks"
 
         and:
-        failure.assertHasCause("Exception thrown while executing model rule: model.platform")
+        failure.assertHasCause("Exception thrown while executing model rule: platform { ... } @ build.gradle line 31, column 17")
         failure.assertHasCause("Only managed model instances can be set as property 'operatingSystem' of class 'Platform'")
     }
 
     def "cannot use value type as subject of void model rule"() {
-        given:
         when:
         buildScript '''
-            import org.gradle.model.*
-
             class Rules extends RuleSource {
               @Model
               void s(String s) {}
@@ -158,15 +149,34 @@ class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec{
         fails "tasks"
 
         and:
-        failure.assertHasCause("Rules#s(java.lang.String) is not a valid model rule method: a void returning model element creation rule cannot take a value type as the first parameter, which is the element being created. Return the value from the method.")
+        failure.assertHasCause("Declaration of model rule Rules#s(String) is invalid.")
+        failure.assertHasCause("A model element of type: 'java.lang.String' can not be constructed.")
+    }
+
+    def "cannot use unknown type as subject of void model rule"() {
+        when:
+        buildScript '''
+            interface Thing { }
+
+            class Rules extends RuleSource {
+              @Model
+              void s(Thing s) {}
+            }
+
+            apply type: Rules
+        '''
+
+        then:
+        fails "tasks"
+
+        and:
+        failure.assertHasCause("Declaration of model rule Rules#s(Thing) is invalid.")
+        failure.assertHasCause("A model element of type: 'Thing' can not be constructed.")
     }
 
     def "provides a useful error message when an invalid managed type is used in a rule"() {
         when:
         buildScript '''
-            import org.gradle.model.*
-            import org.gradle.model.collection.*
-
             @Managed
             interface Person {
                 String getName()
@@ -182,10 +192,10 @@ class InvalidManagedModelRuleIntegrationTest extends AbstractIntegrationSpec{
         '''
 
         then:
-        fails "tasks"
+        fails "model"
 
         and:
-        failure.assertHasCause("Declaration of model rule RulePlugin#createPerson(Person) is invalid")
-        failure.assertHasCause("Invalid managed model type Person: read only property 'name' has non managed type java.lang.String, only managed types can be used")
+        failure.assertHasCause("Exception thrown while executing model rule: RulePlugin#createPerson(Person)")
+        failure.assertHasCause("Invalid managed model type 'Person': read only property 'name' has non managed type java.lang.String, only managed types can be used")
     }
 }

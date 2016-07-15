@@ -19,6 +19,8 @@ package org.gradle.api.tasks.compile;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.gradle.api.Incubating;
+import org.gradle.api.file.FileCollection;
+import org.gradle.api.tasks.Console;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.Optional;
@@ -68,6 +70,8 @@ public class CompileOptions extends AbstractOptions {
 
     private boolean incremental;
 
+    private FileCollection sourcepath;
+
     /**
      * Tells whether to fail the build when compilation fails. Defaults to {@code true}.
      */
@@ -86,6 +90,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Tells whether to produce verbose output. Defaults to {@code false}.
      */
+    @Console
     public boolean isVerbose() {
         return verbose;
     }
@@ -100,6 +105,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Tells whether to log the files to be compiled. Defaults to {@code false}.
      */
+    @Console
     public boolean isListFiles() {
         return listFiles;
     }
@@ -114,6 +120,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Tells whether to log details of usage of deprecated members or classes. Defaults to {@code false}.
      */
+    @Console
     public boolean isDeprecation() {
         return deprecation;
     }
@@ -128,6 +135,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Tells whether to log warning messages. The default is {@code true}.
      */
+    @Console
     public boolean isWarnings() {
         return warnings;
     }
@@ -194,6 +202,7 @@ public class CompileOptions extends AbstractOptions {
      * not necessarily mean that a new process will be created for each compile task.
      * Defaults to {@code false}.
      */
+    @Input
     public boolean isFork() {
         return fork;
     }
@@ -227,6 +236,7 @@ public class CompileOptions extends AbstractOptions {
      * Only takes effect if {@code useAnt} is {@code true}. Defaults to
      * {@code false}.
      */
+    @Input
     public boolean isUseDepend() {
         return useDepend;
     }
@@ -243,6 +253,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Returns options for using the Ant {@code <depend>} task.
      */
+    @Nested
     public DependOptions getDependOptions() {
         return dependOptions;
     }
@@ -255,8 +266,7 @@ public class CompileOptions extends AbstractOptions {
     }
 
     /**
-     * Returns the bootstrap classpath to be used for the compiler process.
-     * Only takes effect if {@code fork} is {@code true}. Defaults to {@code null}.
+     * Returns the bootstrap classpath to be used for the compiler process. Defaults to {@code null}.
      */
     @Input
     @Optional
@@ -265,26 +275,23 @@ public class CompileOptions extends AbstractOptions {
     }
 
     /**
-     * Sets the bootstrap classpath to be used for the compiler process.
-     * Only takes effect if {@code fork} is {@code true}. Defaults to {@code null}.
+     * Sets the bootstrap classpath to be used for the compiler process. Defaults to {@code null}.
      */
     public void setBootClasspath(String bootClasspath) {
         this.bootClasspath = bootClasspath;
     }
 
     /**
-     * Returns the extension dirs to be used for the compiler process.
-     * Only takes effect if {@code fork} is {@code true}. Defaults to {@code null}.
+     * Returns the extension dirs to be used for the compiler process. Defaults to {@code null}.
      */
-    @Input 
+    @Input
     @Optional
     public String getExtensionDirs() {
         return extensionDirs;
     }
 
     /**
-     * Sets the extension dirs to be used for the compiler process.
-     * Only takes effect if {@code fork} is {@code true}. Defaults to {@code null}.
+     * Sets the extension dirs to be used for the compiler process. Defaults to {@code null}.
      */
     public void setExtensionDirs(String extensionDirs) {
         this.extensionDirs = extensionDirs;
@@ -293,6 +300,13 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Returns any additional arguments to be passed to the compiler.
      * Defaults to the empty list.
+     *
+     * Compiler arguments not supported by the DSL can be added here. For example, it is possible
+     * to pass the {@code -release} option of JDK 9:
+     * <pre><code>compilerArgs.addAll(['-release', '7'])</code></pre>
+     *
+     * Note that if {@code -release} is added then {@code -target} and {@code -source}
+     * are ignored.
      */
     @Input
     public List<String> getCompilerArgs() {
@@ -351,6 +365,7 @@ public class CompileOptions extends AbstractOptions {
     /**
      * Internal method.
      */
+    @Override
     public Map<String, Object> optionMap() {
         Map<String, Object> map = super.optionMap();
         map.putAll(debugOptions.optionMap());
@@ -385,9 +400,43 @@ public class CompileOptions extends AbstractOptions {
     /**
      * informs whether to use experimental incremental compilation feature. See {@link #setIncremental(boolean)}
      */
+    @Input
     @Incubating
     public boolean isIncremental() {
         return incremental;
+    }
+
+    /**
+     * The source path to use for the compilation.
+     * <p>
+     * The source path indicates the location of source files that <i>may</i> be compiled if necessary.
+     * It is effectively a complement to the class path, where the classes to be compiled against are in source form.
+     * It does <b>not</b> indicate the actual primary source being compiled.
+     * <p>
+     * The source path feature of the Java compiler is rarely needed for modern builds that use dependency management.
+     * <p>
+     * The default value for the source path is {@code null}, which indicates an <i>empty</i> source path.
+     * Note that this is different to the default value for the {@code -sourcepath} option for {@code javac}, which is to use the value specified by {@code -classpath}.
+     * If you wish to use any source path, it must be explicitly set.
+     *
+     * @return the source path
+     * @see #setSourcepath(FileCollection)
+     */
+    @Input
+    @Optional
+    @Incubating
+    public FileCollection getSourcepath() {
+        return sourcepath;
+    }
+
+    /**
+     * Sets the source path to use for the compilation.
+     *
+     * @param sourcepath the source path
+     */
+    @Incubating
+    public void setSourcepath(FileCollection sourcepath) {
+        this.sourcepath = sourcepath;
     }
 }
 

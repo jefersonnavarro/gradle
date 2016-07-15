@@ -30,7 +30,7 @@ import org.gradle.foundation.ipc.basic.ProcessLauncherServer;
 import org.gradle.initialization.DefaultCommandLineConverter;
 import org.gradle.internal.jvm.Jvm;
 import org.gradle.internal.os.OperatingSystem;
-import org.gradle.logging.ShowStacktrace;
+import org.gradle.api.logging.configuration.ShowStacktrace;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -51,7 +51,7 @@ public abstract class AbstractGradleServerProtocol implements ProcessLauncherSer
 
     private final Logger logger = Logging.getLogger(AbstractGradleServerProtocol.class);
     private final TemporaryFileProvider temporaryFileProvider = new TmpDirTemporaryFileProvider();
-    
+
     protected ProcessLauncherServer server;
     private boolean continueConnection;
     private boolean waitingOnHandshakeCompletion;
@@ -279,7 +279,7 @@ public abstract class AbstractGradleServerProtocol implements ProcessLauncherSer
             }
         }
 
-        executionInfo.setCommandLineArguments(executionCommandLine.toArray(new String[executionCommandLine.size()]));
+        executionInfo.setCommandLineArguments(executionCommandLine.toArray(new String[0]));
         return executionInfo;
     }
 

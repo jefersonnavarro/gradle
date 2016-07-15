@@ -20,13 +20,19 @@ import org.gradle.api.NamedDomainObjectFactory
 import org.gradle.internal.reflect.Instantiator
 import org.gradle.nativeplatform.toolchain.internal.compilespec.CCompileSpec
 import org.gradle.nativeplatform.platform.internal.DefaultNativePlatform
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.TestUtil
+import org.junit.Rule
 import spock.lang.Specification
 
 import static org.gradle.util.TextUtil.toPlatformLineSeparators
 
 class DefaultNativeToolChainRegistryTest extends Specification {
-    def project = TestUtil.createRootProject()
+    @Rule
+    TestNameTestDirectoryProvider testDir = new TestNameTestDirectoryProvider()
+
+    def project = TestUtil.create(testDir).rootProject()
+
     def instantiator = project.services.get(Instantiator)
     def registry = instantiator.newInstance(DefaultNativeToolChainRegistry, instantiator)
     def NamedDomainObjectFactory<TestNativeToolChain> factory = Mock(NamedDomainObjectFactory)
@@ -85,7 +91,7 @@ class DefaultNativeToolChainRegistryTest extends Specification {
         def result = tc.select(platform)
 
         when:
-        result.newCompiler(Stub(CCompileSpec))
+        result.newCompiler(CCompileSpec.class)
 
         then:
         GradleException e = thrown()

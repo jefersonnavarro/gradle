@@ -20,10 +20,9 @@ import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.test.fixtures.archive.JarTestFixture
 
 public class MixedLegacyAndComponentJvmPluginIntegrationTest extends AbstractIntegrationSpec {
-
     def "can combine legacy java and jvm-component plugins in a single project"() {
         settingsFile << "rootProject.name = 'test'"
-        buildFile << """
+        buildFile << '''
             apply plugin: "java"
             apply plugin: "jvm-component"
             apply plugin: "java-lang"
@@ -32,18 +31,23 @@ public class MixedLegacyAndComponentJvmPluginIntegrationTest extends AbstractInt
                 components {
                     jvmLib(JvmLibrarySpec)
                 }
-            }
+                tasks {
+                    checkModel(Task) {
+                        def components = $.components
+                        def binaries = $.binaries
+                        doLast {
+                            assert components.size() == 1
+                            assert components.jvmLib instanceof JvmLibrarySpec
 
-            task checkModel << {
-                assert componentSpecs.size() == 1
-                assert componentSpecs.jvmLib instanceof JvmLibrarySpec
-
-                assert binaries.size() == 3
-                assert binaries.jvmLibJar instanceof JarBinarySpec
-                assert binaries.mainClasses instanceof ClassDirectoryBinarySpec
-                assert binaries.testClasses instanceof ClassDirectoryBinarySpec
+                            assert binaries.size() == 3
+                            assert binaries.jvmLibJar instanceof JarBinarySpec
+                            assert binaries.main instanceof ClassDirectoryBinarySpec
+                            assert binaries.test instanceof ClassDirectoryBinarySpec
+                        }
+                    }
+                }
             }
-"""
+'''
         expect:
         succeeds "checkModel"
     }
@@ -85,7 +89,7 @@ public class MixedLegacyAndComponentJvmPluginIntegrationTest extends AbstractInt
                 ':compileJvmLibJarJvmLibJava', ':processJvmLibJarJvmLibResources', ':createJvmLibJar', ':jvmLibJar'
 
         and:
-        new JarTestFixture(file("build/jars/jvmLibJar/jvmLib.jar")).hasDescendants("org/gradle/test/Component.class", "component.txt");
+        new JarTestFixture(file("build/jars/jvmLib/jar/jvmLib.jar")).hasDescendants("org/gradle/test/Component.class", "component.txt");
         new JarTestFixture(file("build/libs/test.jar")).hasDescendants("org/gradle/test/Legacy.class", "legacy.txt");
     }
 }

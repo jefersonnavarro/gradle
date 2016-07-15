@@ -21,7 +21,13 @@ import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
 import org.gradle.nativeplatform.fixtures.ExecutableFixture
 import org.gradle.nativeplatform.fixtures.NativeInstallationFixture
-import org.gradle.nativeplatform.fixtures.app.*
+import org.gradle.nativeplatform.fixtures.app.CHelloWorldApp
+import org.gradle.nativeplatform.fixtures.app.CppHelloWorldApp
+import org.gradle.nativeplatform.fixtures.app.ExeWithLibraryUsingLibraryHelloWorldApp
+import org.gradle.nativeplatform.fixtures.app.HelloWorldApp
+import org.gradle.nativeplatform.fixtures.app.MixedObjectiveCHelloWorldApp
+import org.gradle.nativeplatform.fixtures.app.ObjectiveCHelloWorldApp
+import org.gradle.nativeplatform.fixtures.app.ObjectiveCppHelloWorldApp
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
 import spock.lang.IgnoreIf
@@ -31,7 +37,8 @@ import spock.lang.IgnoreIf
 class ParallelNativePluginsIntegrationTest extends AbstractInstalledToolChainIntegrationSpec {
 
     def setup() {
-        executer.withArgument("--parallel-threads=4")
+        executer.withArgument("--parallel")
+                .withArgument("--max-workers=4")
                 .withArgument("-D${DefaultTaskExecutionPlan.INTRA_PROJECT_TOGGLE}=true")
     }
 
@@ -65,7 +72,7 @@ class ParallelNativePluginsIntegrationTest extends AbstractInstalledToolChainInt
 
         then:
         Map<ExecutableFixture, HelloWorldApp> executables = apps.collectEntries { name, app ->
-            def executable = executable("build/binaries/${name}Executable/$name")
+            def executable = executable("build/exe/$name/$name")
             executable.assertExists()
             [executable, app]
         }
@@ -93,14 +100,16 @@ class ParallelNativePluginsIntegrationTest extends AbstractInstalledToolChainInt
             app.greetingsSources*.writeToDir(file("src/${name}Greetings"))
 
             buildFile << """
-                // Allow static libraries to be linked into shared
-                binaries.withType(StaticLibraryBinarySpec) {
-                    if (toolChain in Gcc || toolChain in Clang) {
-                        cppCompiler.args '-fPIC'
-                    }
-                }
-
                 model {
+                    // Allow static libraries to be linked into shared
+                    binaries {
+                        withType(StaticLibraryBinarySpec) {
+                            if (toolChain in Gcc || toolChain in Clang) {
+                                cppCompiler.args '-fPIC'
+                            }
+                        }
+                    }
+
                     components {
                         ${name}Main(NativeExecutableSpec) {
                             sources {
@@ -127,7 +136,7 @@ class ParallelNativePluginsIntegrationTest extends AbstractInstalledToolChainInt
 
         then:
         Map<NativeInstallationFixture, HelloWorldApp> installations = apps.collectEntries { name, app ->
-            def installation = installation("build/install/${name}MainExecutable")
+            def installation = installation("build/install/${name}Main")
             [installation, app]
         }
         installations.every { installation, app ->

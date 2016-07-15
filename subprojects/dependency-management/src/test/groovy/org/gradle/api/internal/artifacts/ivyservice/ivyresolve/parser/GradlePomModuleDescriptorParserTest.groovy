@@ -15,13 +15,14 @@
  */
 package org.gradle.api.internal.artifacts.ivyservice.ivyresolve.parser
 
-import org.gradle.internal.component.external.model.MavenModuleResolveMetaData
-import org.gradle.internal.resource.DefaultLocallyAvailableExternalResource
+import groovy.transform.NotYetImplemented
+import org.gradle.api.internal.artifacts.DefaultModuleIdentifier
+import org.gradle.internal.component.external.model.MavenModuleResolveMetadata
+import org.gradle.internal.resource.local.DefaultLocallyAvailableExternalResource
 import org.gradle.internal.resource.local.DefaultLocallyAvailableResource
 import spock.lang.Issue
 import spock.lang.Unroll
 
-import static org.gradle.api.internal.artifacts.ivyservice.IvyUtil.createModuleId
 import static org.gradle.api.internal.component.ArtifactType.MAVEN_POM
 
 class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescriptorParserTest {
@@ -48,14 +49,13 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 
         when:
         def metaData = parseMetaData()
-        def descriptor = metaData.descriptor
 
         then:
-        metaData instanceof MavenModuleResolveMetaData
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 1
-        descriptor.dependencies.first().dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-two')
-        hasDefaultDependencyArtifact(descriptor.dependencies.first())
+        metaData instanceof MavenModuleResolveMetadata
+        metaData.descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        def dependency = single(metaData.descriptor.dependencies)
+        dependency.requested == moduleId('group-two', 'artifact-two', 'version-two')
+        hasDefaultDependencyArtifact(dependency)
         parser.typeName == 'POM'
         parser.toString() == 'gradle pom parser'
     }
@@ -72,10 +72,10 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'my-version-SNAPSHOT')
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'my-version-SNAPSHOT')
     }
 
     def "merges dependencies declared in pom with those declared in parent"() {
@@ -133,22 +133,22 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
         parseContext.getMetaDataArtifact(_, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 3
+        descriptor.dependencies.size() == 3
 
         def dep1 = descriptor.dependencies[0]
-        dep1.dependencyRevisionId == moduleId('group-two', 'artifact-one', '11')
-        dep1.moduleConfigurations == ['compile', 'runtime']
+        dep1.requested == moduleId('group-two', 'artifact-one', '11')
+        dep1.confMappings.keySet() == ['compile', 'runtime'] as Set
 
         def dep2 = descriptor.dependencies[1]
-        dep2.dependencyRevisionId == moduleId('group-two', 'artifact-three', '11')
-        dep2.moduleConfigurations == ['compile', 'runtime']
+        dep2.requested == moduleId('group-two', 'artifact-three', '11')
+        dep2.confMappings.keySet() == ['compile', 'runtime'] as Set
 
         def inheritedDep = descriptor.dependencies[2]
-        inheritedDep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        inheritedDep.moduleConfigurations == ['compile', 'runtime']
+        inheritedDep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        inheritedDep.confMappings.keySet() == ['compile', 'runtime'] as Set
     }
 
     def "uses dependency management section to provide default values for a dependency"() {
@@ -186,15 +186,14 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['test']
-        dep.allExcludeRules.length == 1
-        dep.allExcludeRules.first().id.moduleId == createModuleId('group-three', 'artifact-three')
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['test'] as Set
+        def excludeRule = single(dep.dependencyExcludes)
+        excludeRule.moduleId == DefaultModuleIdentifier.newId('group-three', 'artifact-three')
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -299,13 +298,12 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
         parseContext.getMetaDataArtifact(_, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['test']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['test'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -365,13 +363,12 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
         parseContext.getMetaDataArtifact(_, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.1')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.1')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -449,17 +446,16 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'imported' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(imported.toURI(), new DefaultLocallyAvailableResource(imported)) }
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'imported' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(imported.toURI(), new DefaultLocallyAvailableResource(imported)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.5')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.5')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -518,16 +514,15 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'imported' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(imported.toURI(), new DefaultLocallyAvailableResource(imported)) }
+        parseContext.getMetaDataArtifact({ it.module == 'imported' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(imported.toURI(), new DefaultLocallyAvailableResource(imported)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -576,13 +571,12 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
         parseContext.getMetaDataArtifact(_, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -633,13 +627,12 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
         parseContext.getMetaDataArtifact(_, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.4')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.4')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -710,19 +703,18 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'grandparent' }, MAVEN_POM) >> {
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'grandparent' }, MAVEN_POM) >> {
             new DefaultLocallyAvailableExternalResource(grandParent.toURI(), new DefaultLocallyAvailableResource(grandParent))
         }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -788,19 +780,18 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'grandparent' }, MAVEN_POM) >> {
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'grandparent' }, MAVEN_POM) >> {
             new DefaultLocallyAvailableExternalResource(grandParent.toURI(), new DefaultLocallyAvailableResource(grandParent))
         }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -871,19 +862,18 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'grandparent' }, MAVEN_POM) >> {
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'grandparent' }, MAVEN_POM) >> {
             new DefaultLocallyAvailableExternalResource(grandParent.toURI(), new DefaultLocallyAvailableResource(grandParent))
         }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -938,15 +928,15 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
         parseContext.getMetaDataArtifact(_, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 2
+        descriptor.dependencies.size() == 2
         def artifactTwo = descriptor.dependencies[0]
-        artifactTwo.dependencyRevisionId == moduleId('group-two', 'artifact-two', 'v2')
+        artifactTwo.requested == moduleId('group-two', 'artifact-two', 'v2')
         hasDefaultDependencyArtifact(artifactTwo)
         def artifactThree = descriptor.dependencies[1]
-        artifactThree.dependencyRevisionId == moduleId('group-three', 'artifact-three', 'v3')
+        artifactThree.requested == moduleId('group-three', 'artifact-three', 'v3')
         hasDefaultDependencyArtifact(artifactThree)
     }
 
@@ -1017,23 +1007,21 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'grandparent' }, MAVEN_POM) >> {
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'grandparent' }, MAVEN_POM) >> {
             new DefaultLocallyAvailableExternalResource(grandParent.toURI(), new DefaultLocallyAvailableResource(grandParent))
         }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 2
+        descriptor.dependencies.size() == 2
         def artifactTwo = descriptor.dependencies[0]
-        artifactTwo.dependencyRevisionId == moduleId('group-one', 'artifact-two', 'version-one')
-        artifactTwo.moduleConfigurations == ['compile', 'runtime']
+        artifactTwo.requested == moduleId('group-one', 'artifact-two', 'version-one')
         hasDefaultDependencyArtifact(artifactTwo)
         def artifactThree = descriptor.dependencies[1]
-        artifactThree.dependencyRevisionId == moduleId('group-one', 'artifact-three', 'version-one')
-        artifactThree.moduleConfigurations == ['compile', 'runtime']
+        artifactThree.requested == moduleId('group-one', 'artifact-three', 'version-one')
         hasDefaultDependencyArtifact(artifactThree)
     }
 
@@ -1121,20 +1109,20 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'grandparent' }, MAVEN_POM) >> {
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'grandparent' }, MAVEN_POM) >> {
             new DefaultLocallyAvailableExternalResource(grandParent.toURI(), new DefaultLocallyAvailableResource(grandParent))
         }
-        parseContext.getMetaDataArtifact({ it.name == 'imported' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(imported.toURI(), new DefaultLocallyAvailableResource(imported)) }
+        parseContext.getMetaDataArtifact({ it.module == 'imported' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(imported.toURI(), new DefaultLocallyAvailableResource(imported)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def artifactTwo = descriptor.dependencies[0]
-        artifactTwo.dependencyRevisionId == moduleId('group-one', 'artifact-two', 'some-version')
-        artifactTwo.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-one', 'artifact-two', 'some-version')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
+        hasDefaultDependencyArtifact(dep)
     }
 
     def "pom with dependency with classifier"() {
@@ -1158,13 +1146,14 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 1
-        descriptor.dependencies.first().dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-two')
-        hasDependencyArtifact(descriptor.dependencies.first(), 'artifact-two', 'jar', 'jar', 'classifier-two')
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', 'version-two')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
+        hasDependencyArtifact(dep, 'artifact-two', 'jar', 'jar', 'classifier-two')
     }
 
     @Issue("GRADLE-2068")
@@ -1189,13 +1178,14 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 1
-        descriptor.dependencies.first().dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-two')
-        hasDefaultDependencyArtifact(descriptor.dependencies.first())
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', 'version-two')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
+        hasDefaultDependencyArtifact(dep)
     }
 
     @Issue("GRADLE-2076")
@@ -1212,11 +1202,11 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 0
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        descriptor.dependencies.empty
     }
 
     def "fails when POM is not well formed XML"() {
@@ -1232,8 +1222,8 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 
         then:
         def e = thrown(MetaDataParseException)
-        e.message == "Could not parse POM ${pomFile.toURI()}"
-        e.cause.message.contains('Element type "modelVersion"')
+        e.message == "Could not parse POM ${pomFile}"
+        e.cause.message.contains('"modelVersion"')
     }
 
 
@@ -1250,12 +1240,11 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def metaData = parseMetaData()
-        def descriptor = metaData.descriptor
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 0
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        descriptor.dependencies.empty
     }
 
     def "pom with packaging 'pom'"() {
@@ -1272,10 +1261,9 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 
         when:
         def metaData = parseMetaData()
-        def descriptor = metaData.descriptor
 
         then:
-        descriptor.allArtifacts.length == 0
+        metaData.descriptor.artifacts.empty
         metaData.packaging == 'pom'
     }
 
@@ -1297,10 +1285,9 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 
         when:
         def metaData = parseMetaData()
-        def descriptor = metaData.descriptor
 
         then:
-        descriptor.allArtifacts.length == 0
+        metaData.descriptor.artifacts.empty
         metaData.packaging == 'war'
     }
 
@@ -1336,14 +1323,13 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
         def metaData = parseMetaData()
-        def descriptor = metaData.descriptor
 
         then:
-        descriptor.allArtifacts.length == 0
+        metaData.descriptor.artifacts.empty
         metaData.packaging == 'war'
     }
 
@@ -1364,11 +1350,11 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 0
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        descriptor.dependencies.empty
     }
 
     def "pom with dependency coordinates defined by custom properties"() {
@@ -1396,13 +1382,14 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 1
-        descriptor.dependencies.first().dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-two')
-        hasDefaultDependencyArtifact(descriptor.dependencies.first())
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', 'version-two')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
+        hasDefaultDependencyArtifact(dep)
     }
 
     def "uses parent pom over grand parent pom dependency"() {
@@ -1461,19 +1448,18 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'grandparent' }, MAVEN_POM) >> {
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'grandparent' }, MAVEN_POM) >> {
             new DefaultLocallyAvailableExternalResource(grandParent.toURI(), new DefaultLocallyAvailableResource(grandParent))
         }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -1530,19 +1516,17 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'grandparent' }, MAVEN_POM) >> {
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'grandparent' }, MAVEN_POM) >> {
             new DefaultLocallyAvailableExternalResource(grandParent.toURI(), new DefaultLocallyAvailableResource(grandParent))
         }
-
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -1604,19 +1588,18 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'grandparent' }, MAVEN_POM) >> {
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'grandparent' }, MAVEN_POM) >> {
             new DefaultLocallyAvailableExternalResource(grandParent.toURI(), new DefaultLocallyAvailableResource(grandParent))
         }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -1687,22 +1670,21 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
-        parseContext.getMetaDataArtifact({ it.name == 'relocated' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(relocated.toURI(), new DefaultLocallyAvailableResource(relocated)) }
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'relocated' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(relocated.toURI(), new DefaultLocallyAvailableResource(relocated)) }
 
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-relocated', 'relocated', 'version-one')
-        dep.moduleConfigurations == ['default', 'master', 'compile', 'provided', 'runtime', 'system', 'sources', 'javadoc', 'optional']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-relocated', 'relocated', 'version-one')
+        dep.confMappings.keySet() == ['default', 'master', 'compile', 'provided', 'runtime', 'system', 'sources', 'javadoc', 'optional'] as Set
         hasDefaultDependencyArtifact(dep)
 
         and:
-        descriptor.allArtifacts.length == 0
+        descriptor.artifacts.empty
     }
 
     @Issue("GRADLE-2931")
@@ -1761,20 +1743,20 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 2
+        descriptor.dependencies.size() == 2
         def depCompile = descriptor.dependencies[0]
-        depCompile.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.1')
-        depCompile.moduleConfigurations == ['compile', 'runtime']
+        depCompile.requested == moduleId('group-two', 'artifact-two', '1.1')
+        depCompile.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(depCompile)
         def depTest = descriptor.dependencies[1]
-        depTest.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        depTest.moduleConfigurations == ['test']
+        depTest.requested == moduleId('group-two', 'artifact-two', '1.2')
+        depTest.confMappings.keySet() == ['test'] as Set
         hasDependencyArtifact(depTest, 'artifact-two', 'test-jar', 'jar', 'tests')
     }
 
@@ -1828,7 +1810,7 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+        parseContext.getMetaDataArtifact({ it.module == 'parent' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
         parsePom()
@@ -1876,14 +1858,13 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies[0]
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-four')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', 'version-four')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDependencyArtifact(dep, 'artifact-two', 'jar', 'jar', 'myjar')
     }
 
@@ -1934,30 +1915,30 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 5
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        descriptor.dependencies.size() == 5
         def defDep = descriptor.dependencies[0]
-        defDep.dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-two')
-        defDep.moduleConfigurations == ['compile', 'runtime']
+        defDep.requested == moduleId('group-two', 'artifact-two', 'version-two')
+        defDep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(defDep)
         def depJar = descriptor.dependencies[1]
-        depJar.dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-three')
-        depJar.moduleConfigurations == ['compile', 'runtime']
+        depJar.requested == moduleId('group-two', 'artifact-two', 'version-three')
+        depJar.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDependencyArtifact(depJar, 'artifact-two', 'jar', 'jar', 'myjar')
         def depTestJar = descriptor.dependencies[2]
-        depTestJar.dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-four')
-        depTestJar.moduleConfigurations == ['compile', 'runtime']
+        depTestJar.requested == moduleId('group-two', 'artifact-two', 'version-four')
+        depTestJar.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDependencyArtifact(depTestJar, 'artifact-two', 'test-jar', 'jar', 'tests')
         def depTestJarWithClassifier = descriptor.dependencies[3]
-        depTestJarWithClassifier.dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-five')
-        depTestJarWithClassifier.moduleConfigurations == ['compile', 'runtime']
+        depTestJarWithClassifier.requested == moduleId('group-two', 'artifact-two', 'version-five')
+        depTestJarWithClassifier.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDependencyArtifact(depTestJarWithClassifier, 'artifact-two', 'test-jar', 'jar', 'test')
         def depEjbClient = descriptor.dependencies[4]
-        depEjbClient.dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-six')
-        depEjbClient.moduleConfigurations == ['compile', 'runtime']
+        depEjbClient.requested == moduleId('group-two', 'artifact-two', 'version-six')
+        depEjbClient.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDependencyArtifact(depEjbClient, 'artifact-two', 'ejb-client', 'jar', 'client')
     }
 
@@ -2004,18 +1985,18 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.moduleRevisionId == moduleId('group-one', 'artifact-one', 'version-one')
-        descriptor.dependencies.length == 2
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one', 'version-one')
+        descriptor.dependencies.size() == 2
         def defDep = descriptor.dependencies[0]
-        defDep.dependencyRevisionId == moduleId('group-one', 'artifact-two', 'version-one')
-        defDep.moduleConfigurations == ['compile', 'runtime']
+        defDep.requested == moduleId('group-one', 'artifact-two', 'version-one')
+        defDep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(defDep)
         def depJar = descriptor.dependencies[1]
-        depJar.dependencyRevisionId == moduleId('group-one', 'artifact-two', 'version-one')
-        depJar.moduleConfigurations == ['test']
+        depJar.requested == moduleId('group-one', 'artifact-two', 'version-one')
+        depJar.confMappings.keySet() == ['test'] as Set
         hasDependencyArtifact(depJar, 'artifact-two', 'test-jar', 'jar', 'tests')
     }
 
@@ -2077,17 +2058,17 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
         parseContext.getMetaDataArtifact(_, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 2
+        descriptor.dependencies.size() == 2
         def depGroupTwo = descriptor.dependencies[0]
-        depGroupTwo.dependencyRevisionId == moduleId('group-two', 'artifact-two', 'version-two')
-        depGroupTwo.moduleConfigurations == ['compile', 'runtime']
+        depGroupTwo.requested == moduleId('group-two', 'artifact-two', 'version-two')
+        depGroupTwo.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(depGroupTwo)
         def depGroupThree = descriptor.dependencies[1]
-        depGroupThree.dependencyRevisionId == moduleId('group-three', 'artifact-three', 'version-three')
-        depGroupThree.moduleConfigurations == ['compile', 'runtime']
+        depGroupThree.requested == moduleId('group-three', 'artifact-three', 'version-three')
+        depGroupThree.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(depGroupThree)
     }
 
@@ -2148,16 +2129,15 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         and:
-        parseContext.getMetaDataArtifact({ it.name == 'imported' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(imported.toURI(), new DefaultLocallyAvailableResource(imported)) }
+        parseContext.getMetaDataArtifact({ it.module == 'imported' }, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(imported.toURI(), new DefaultLocallyAvailableResource(imported)) }
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.5')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.5')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDefaultDependencyArtifact(dep)
     }
 
@@ -2196,11 +2176,12 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 </project>
 """
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 2
-        descriptor.dependencies.every{it.dependencyRevisionId.revision == outputVersion}
+        descriptor.dependencies.size() == 2
+        descriptor.dependencies.every {it.requested.version == outputVersion}
+
         where:
         inputVersion | outputVersion
         "RELEASE"    | "latest.release"
@@ -2230,13 +2211,12 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
 """
 
         when:
-        def descriptor = parsePom()
+        parsePom()
 
         then:
-        descriptor.dependencies.length == 1
-        def dep = descriptor.dependencies.first()
-        dep.dependencyRevisionId == moduleId('group-two', 'artifact-two', '1.2')
-        dep.moduleConfigurations == ['compile', 'runtime']
+        def dep = single(descriptor.dependencies)
+        dep.requested == moduleId('group-two', 'artifact-two', '1.2')
+        dep.confMappings.keySet() == ['compile', 'runtime'] as Set
         hasDependencyArtifact(dep, 'artifact-two', type, extension, classifier)
 
         where:
@@ -2246,5 +2226,84 @@ class GradlePomModuleDescriptorParserTest extends AbstractGradlePomModuleDescrip
         'ejb-client'  | 'jar'         | 'client'
         'bundle'      | 'jar'         | null
         'custom-type' | 'custom-type' | null
+    }
+
+    @Issue("GRADLE-3299")
+    def "correctly resolve references to parent GAV properties"() {
+        given:
+        def parent = tmpDir.file("parent.xml") << """
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>group-one</groupId>
+    <artifactId>artifact-one</artifactId>
+    <version>version-one</version>
+</project>
+"""
+
+        pomFile << """
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>\${project.parent.groupId}</groupId>
+    <artifactId>\${project.parent.artifactId}-ext</artifactId>
+    <version>\${project.parent.version}</version>
+
+    <parent>
+        <groupId>group-one</groupId>
+        <artifactId>artifact-one</artifactId>
+        <version>version-one</version>
+    </parent>
+
+    <dependencies>
+        <dependency>
+            <groupId>\${parent.groupId}</groupId>
+            <artifactId>\${parent.artifactId}-xxx</artifactId>
+            <version>\${parent.version}</version>
+        </dependency>
+    </dependencies>
+</project>
+"""
+        and:
+        parseContext.getMetaDataArtifact(_, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+
+        when:
+        parsePom()
+
+        then:
+        descriptor.componentIdentifier == componentId('group-one', 'artifact-one-ext', 'version-one')
+
+        def depGroupOne = single(descriptor.dependencies)
+        depGroupOne.requested == moduleId('group-one', 'artifact-one-xxx', 'version-one')
+        hasDefaultDependencyArtifact(depGroupOne)
+    }
+
+    @NotYetImplemented
+    @Issue("GRADLE-3485")
+    def "throws appropriate exception if parent pom has the same GAV as resolved pom"() {
+        given:
+        def pomWithParent = """
+<project>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>group-one</groupId>
+    <artifactId>artifact-one</artifactId>
+    <version>version-one</version>
+
+    <parent>
+        <groupId>group-one</groupId>
+        <artifactId>artifact-one</artifactId>
+        <version>version-one</version>
+    </parent>
+</project>
+"""
+        def parent = tmpDir.file("parent.xml") << pomWithParent
+        pomFile << pomWithParent
+
+        and:
+        parseContext.getMetaDataArtifact(_, MAVEN_POM) >> { new DefaultLocallyAvailableExternalResource(parent.toURI(), new DefaultLocallyAvailableResource(parent)) }
+
+        when:
+        parsePom()
+
+        then:
+        thrown(MetaDataParseException)
     }
 }

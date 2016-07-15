@@ -15,8 +15,8 @@
  */
 package org.gradle.api.internal.artifacts.mvnsettings;
 
-import org.gradle.mvn3.org.apache.maven.settings.Settings;
-import org.gradle.mvn3.org.apache.maven.settings.building.SettingsBuildingException;
+import org.apache.maven.settings.Settings;
+import org.apache.maven.settings.building.SettingsBuildingException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,7 +29,6 @@ public class DefaultLocalMavenRepositoryLocator implements LocalMavenRepositoryL
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^\\}]*)\\}");
 
     private final MavenSettingsProvider settingsProvider;
-    private File localMavenRepository;
     private final SystemPropertyAccess system;
     private String localRepoPathFromMavenSettings;
 
@@ -53,7 +52,7 @@ public class DefaultLocalMavenRepositoryLocator implements LocalMavenRepositoryL
                 return new File(resolvePlaceholders(repoPath.trim()));
             } else {
                 File defaultLocation = new File(system.getProperty("user.home"), "/.m2/repository").getAbsoluteFile();
-                LOGGER.debug(String.format("No local repository in Settings file defined. Using default path: %s", defaultLocation));
+                LOGGER.debug("No local repository in Settings file defined. Using default path: {}", defaultLocation);
                 return defaultLocation;
             }
         } catch (SettingsBuildingException e) {
@@ -61,6 +60,9 @@ public class DefaultLocalMavenRepositoryLocator implements LocalMavenRepositoryL
         }
     }
 
+    // We only cache the result of parsing the Maven settings files, but allow this value to be updated in-flight
+    // via system properties. This allows the local maven repo to be overridden when publishing to maven
+    // (see http://forums.gradle.org/gradle/topics/override_location_of_the_local_maven_repo).
     private synchronized String parseLocalRepoPathFromMavenSettings() throws SettingsBuildingException {
         if (localRepoPathFromMavenSettings == null) {
             Settings settings = settingsProvider.buildSettings();

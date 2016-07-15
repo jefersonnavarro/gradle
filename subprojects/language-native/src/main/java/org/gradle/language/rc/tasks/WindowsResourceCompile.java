@@ -19,10 +19,24 @@ import org.gradle.api.DefaultTask;
 import org.gradle.api.Incubating;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.tasks.*;
+import org.gradle.api.internal.changedetection.changes.DiscoveredInputRecorder;
+import org.gradle.api.tasks.Input;
+import org.gradle.api.tasks.InputFiles;
+import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.Nested;
+import org.gradle.api.tasks.OutputDirectory;
+import org.gradle.api.tasks.ParallelizableTask;
+import org.gradle.api.tasks.TaskAction;
+import org.gradle.api.tasks.WorkResult;
 import org.gradle.api.tasks.incremental.IncrementalTaskInputs;
+import org.gradle.internal.Cast;
+import org.gradle.internal.operations.logging.BuildOperationLogger;
+import org.gradle.internal.operations.logging.BuildOperationLoggerFactory;
+import org.gradle.language.base.internal.compile.Compiler;
+import org.gradle.language.base.internal.compile.CompilerUtil;
 import org.gradle.language.nativeplatform.internal.incremental.IncrementalCompilerBuilder;
 import org.gradle.language.rc.internal.DefaultWindowsResourceCompileSpec;
+import org.gradle.nativeplatform.internal.BuildOperationLoggingCompilerDecorator;
 import org.gradle.nativeplatform.platform.NativePlatform;
 import org.gradle.nativeplatform.platform.internal.NativePlatformInternal;
 import org.gradle.nativeplatform.toolchain.NativeToolChain;
@@ -69,8 +83,15 @@ public class WindowsResourceCompile extends DefaultTask {
         throw new UnsupportedOperationException();
     }
 
+    @Inject
+    public BuildOperationLoggerFactory getOperationLoggerFactory() {
+        throw new UnsupportedOperationException();
+    }
+
     @TaskAction
     public void compile(IncrementalTaskInputs inputs) {
+        BuildOperationLogger operationLogger = getOperationLoggerFactory().newOperationLogger(getName(), getTemporaryDir());
+
         NativeCompileSpec spec = new DefaultWindowsResourceCompileSpec();
         spec.setTempDir(getTemporaryDir());
         spec.setObjectFileDir(getOutputDir());
@@ -79,15 +100,26 @@ public class WindowsResourceCompile extends DefaultTask {
         spec.setMacros(getMacros());
         spec.args(getCompilerArgs());
         spec.setIncrementalCompile(inputs.isIncremental());
+        spec.setDiscoveredInputRecorder((DiscoveredInputRecorder) inputs);
+        spec.setOperationLogger(operationLogger);
 
         PlatformToolProvider platformToolProvider = toolChain.select(targetPlatform);
-        WorkResult result = getIncrementalCompilerBuilder().createIncrementalCompiler(this, platformToolProvider.newCompiler(spec), toolChain).execute(spec);
+        WorkResult result = doCompile(spec, platformToolProvider);
         setDidWork(result.getDidWork());
+    }
+
+    private <T extends NativeCompileSpec> WorkResult doCompile(T spec, PlatformToolProvider platformToolProvider) {
+        Class<T> specType = Cast.uncheckedCast(spec.getClass());
+        Compiler<T> baseCompiler = platformToolProvider.newCompiler(specType);
+        Compiler<T> incrementalCompiler = getIncrementalCompilerBuilder().createIncrementalCompiler(this, baseCompiler, toolChain);
+        Compiler<T> loggingCompiler = BuildOperationLoggingCompilerDecorator.wrap(incrementalCompiler);
+        return CompilerUtil.castCompiler(loggingCompiler).execute(spec);
     }
 
     /**
      * The tool chain used for compilation.
      */
+    @Internal
     public NativeToolChain getToolChain() {
         return toolChain;
     }
@@ -99,6 +131,7 @@ public class WindowsResourceCompile extends DefaultTask {
     /**
      * The platform being targeted.
      */
+    @Nested
     public NativePlatform getTargetPlatform() {
         return targetPlatform;
     }

@@ -16,10 +16,13 @@
 
 package org.gradle.performance
 
+import org.gradle.performance.categories.BasicPerformanceTest
+import org.junit.experimental.categories.Category
 import spock.lang.Unroll
 
 import static org.gradle.performance.measure.Duration.millis
 
+@Category(BasicPerformanceTest)
 class FirstBuildPerformanceTest extends AbstractCrossVersionPerformanceTest {
     @Unroll("Project '#testProject' first use")
     def "build"() {
@@ -30,7 +33,7 @@ class FirstBuildPerformanceTest extends AbstractCrossVersionPerformanceTest {
         runner.tasksToRun = ['help']
         runner.args = ['--recompile-scripts']
         runner.maxExecutionTimeRegression = maxExecutionTimeRegression
-        runner.targetVersions = ['1.0', '1.10', '1.12', 'last']
+        runner.targetVersions = ['2.12', 'last']
 
         when:
         def result = runner.run()

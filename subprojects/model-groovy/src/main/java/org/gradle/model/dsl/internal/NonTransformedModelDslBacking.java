@@ -21,16 +21,26 @@ import groovy.lang.GroovyObjectSupport;
 import groovy.lang.MissingMethodException;
 import groovy.lang.MissingPropertyException;
 import net.jcip.annotations.NotThreadSafe;
+import org.gradle.api.Action;
 import org.gradle.api.GradleException;
 import org.gradle.api.internal.ClosureBackedAction;
-import org.gradle.model.internal.core.ActionBackedModelAction;
+import org.gradle.internal.Actions;
 import org.gradle.model.internal.core.ModelActionRole;
 import org.gradle.model.internal.core.ModelPath;
 import org.gradle.model.internal.core.ModelReference;
+import org.gradle.model.internal.core.ModelRegistrations;
+import org.gradle.model.internal.core.NoInputsModelAction;
+import org.gradle.model.internal.core.NodeInitializer;
+import org.gradle.model.internal.core.NodeInitializerRegistry;
+import org.gradle.model.internal.core.rule.describe.ModelRuleDescriptor;
 import org.gradle.model.internal.core.rule.describe.SimpleModelRuleDescriptor;
 import org.gradle.model.internal.registry.ModelRegistry;
+import org.gradle.model.internal.type.ModelType;
 
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.gradle.model.internal.core.DefaultNodeInitializerRegistry.DEFAULT_REFERENCE;
+import static org.gradle.model.internal.core.NodeInitializerContext.forType;
 
 @NotThreadSafe
 public class NonTransformedModelDslBacking extends GroovyObjectSupport {
@@ -58,17 +68,34 @@ public class NonTransformedModelDslBacking extends GroovyObjectSupport {
     }
 
     private void registerConfigurationAction(final Closure<?> action) {
-        modelRegistry.apply(ModelActionRole.Mutate,
-                new ActionBackedModelAction<Object>(
-                        ModelReference.untyped(modelPath),
-                        new ClosureBackedAction<Object>(action),
-                        new SimpleModelRuleDescriptor("model." + modelPath)), ModelPath.ROOT);
+        modelRegistry.configure(ModelActionRole.Mutate,
+            new NoInputsModelAction<Object>(
+                ModelReference.untyped(modelPath),
+                new SimpleModelRuleDescriptor("model." + modelPath), new ClosureBackedAction<Object>(action)
+            ));
+    }
+
+    private <T> void register(Class<T> type, Closure<?> closure) {
+        register(type, new ClosureBackedAction<T>(closure));
+    }
+
+    private <T> void register(Class<T> type, Action<? super T> action) {
+        ModelRuleDescriptor descriptor = new SimpleModelRuleDescriptor("model." + modelPath);
+        NodeInitializerRegistry nodeInitializerRegistry = modelRegistry.realize(DEFAULT_REFERENCE.getPath(), DEFAULT_REFERENCE.getType());
+        ModelType<T> modelType = ModelType.of(type);
+        NodeInitializer nodeInitializer = nodeInitializerRegistry.getNodeInitializer(forType(modelType));
+        modelRegistry.register(
+            ModelRegistrations.of(modelPath, nodeInitializer)
+                .descriptor(descriptor)
+                .action(ModelActionRole.Initialize, NoInputsModelAction.of(ModelReference.of(modelPath, modelType), descriptor, action))
+                .build()
+        );
     }
 
     public void configure(Closure<?> action) {
         executingDsl.set(true);
         try {
-            new ClosureBackedAction<Object>(action).execute(this);
+            ClosureBackedAction.execute(this, action);
         } finally {
             executingDsl.set(false);
         }
@@ -91,12 +118,21 @@ public class NonTransformedModelDslBacking extends GroovyObjectSupport {
                 throw new MissingMethodException(name, getClass(), args);
             }
         } else {
-            if (args.length != 1 || !(args[0] instanceof Closure)) {
-                throw new MissingMethodException(name, getClass(), args);
-            } else {
+            if (args.length == 1 && args[0] instanceof Closure) {
                 Closure<?> closure = (Closure) args[0];
                 getChildPath(name).registerConfigurationAction(closure);
                 return null;
+            } else if (args.length == 2 && args[0] instanceof Class && args[1] instanceof Closure) {
+                Class<?> clazz = (Class<?>) args[0];
+                Closure<?> closure = (Closure<?>) args[1];
+                getChildPath(name).register(clazz, closure);
+                return null;
+            } else if (args.length == 1 && args[0] instanceof Class) {
+                Class<?> clazz = (Class<?>) args[0];
+                getChildPath(name).register(clazz, Actions.doNothing());
+                return null;
+            } else {
+                throw new MissingMethodException(name, getClass(), args);
             }
         }
     }

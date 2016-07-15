@@ -16,23 +16,18 @@
 
 package org.gradle.nativeplatform.test.googletest.internal;
 
-import org.gradle.internal.reflect.Instantiator;
-import org.gradle.nativeplatform.NativeComponentSpec;
-import org.gradle.nativeplatform.internal.NativeBinarySpecInternal;
-import org.gradle.nativeplatform.internal.resolve.NativeDependencyResolver;
 import org.gradle.nativeplatform.test.googletest.GoogleTestTestSuiteBinarySpec;
+import org.gradle.nativeplatform.test.googletest.GoogleTestTestSuiteSpec;
 import org.gradle.nativeplatform.test.internal.DefaultNativeTestSuiteBinarySpec;
-import org.gradle.platform.base.binary.BaseBinarySpec;
-import org.gradle.platform.base.internal.BinaryNamingScheme;
 
 public class DefaultGoogleTestTestSuiteBinary extends DefaultNativeTestSuiteBinarySpec implements GoogleTestTestSuiteBinarySpec {
+    @Override
+    public GoogleTestTestSuiteSpec getComponent() {
+        return getComponentAs(GoogleTestTestSuiteSpec.class);
+    }
 
-    public static DefaultGoogleTestTestSuiteBinary create(NativeComponentSpec owner, NativeBinarySpecInternal testedBinary, BinaryNamingScheme namingScheme, NativeDependencyResolver resolver, Instantiator instantiator) {
-        DefaultGoogleTestTestSuiteBinary spec = BaseBinarySpec.create(DefaultGoogleTestTestSuiteBinary.class, namingScheme.getLifecycleTaskName(), instantiator);
-        spec.setComponent(owner);
-        spec.setTestedBinary(testedBinary);
-        spec.setNamingScheme(namingScheme);
-        spec.setResolver(resolver);
-        return spec;
+    @Override
+    public GoogleTestTestSuiteSpec getTestSuite() {
+        return getComponent();
     }
 }

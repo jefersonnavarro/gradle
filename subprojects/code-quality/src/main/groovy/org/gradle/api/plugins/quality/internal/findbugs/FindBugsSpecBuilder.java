@@ -16,19 +16,19 @@
 
 package org.gradle.api.plugins.quality.internal.findbugs;
 
-import java.io.File;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Set;
-
+import com.google.common.collect.ImmutableSet;
 import org.gradle.api.InvalidUserDataException;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.plugins.quality.FindBugsReports;
+import org.gradle.api.reporting.internal.CustomizableHtmlReportImpl;
 import org.gradle.api.plugins.quality.internal.FindBugsReportsImpl;
 import org.gradle.api.specs.Spec;
 import org.gradle.util.CollectionUtils;
 
-import com.google.common.collect.ImmutableSet;
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Set;
 
 public class FindBugsSpecBuilder {
     private static final Set<String> VALID_EFFORTS = ImmutableSet.of("min", "default", "max");
@@ -48,6 +48,7 @@ public class FindBugsSpecBuilder {
     private File excludeFilter;
     private File includeFilter;
     private File excludeBugsFilter;
+    private Collection<String> extraArgs;
     private boolean debugEnabled;
 
     public FindBugsSpecBuilder(FileCollection classes) {
@@ -93,7 +94,7 @@ public class FindBugsSpecBuilder {
         this.reportLevel = reportLevel;
         return this;
     }
-    
+
     public FindBugsSpecBuilder withMaxHeapSize(String maxHeapSize) {
         this.maxHeapSize = maxHeapSize;
         return this;
@@ -136,6 +137,12 @@ public class FindBugsSpecBuilder {
         }
 
         this.excludeBugsFilter = excludeBugsFilter;
+
+        return this;
+    }
+
+    public FindBugsSpecBuilder withExtraArgs(Collection<String> extraArgs) {
+        this.extraArgs = extraArgs;
         return this;
     }
 
@@ -157,9 +164,14 @@ public class FindBugsSpecBuilder {
                 FindBugsReportsImpl reportsImpl = (FindBugsReportsImpl) reports;
                 String outputArg = "-" + reportsImpl.getFirstEnabled().getName();
                 if (reportsImpl.getFirstEnabled() instanceof FindBugsXmlReportImpl) {
-                    FindBugsXmlReportImpl r = (FindBugsXmlReportImpl)reportsImpl.getFirstEnabled();
+                    FindBugsXmlReportImpl r = (FindBugsXmlReportImpl) reportsImpl.getFirstEnabled();
                     if (r.isWithMessages()) {
                         outputArg += ":withMessages";
+                    }
+                } else if (reportsImpl.getFirstEnabled() instanceof CustomizableHtmlReportImpl) {
+                    CustomizableHtmlReportImpl r = (CustomizableHtmlReportImpl) reportsImpl.getFirstEnabled();
+                    if (r.getStylesheet() != null) {
+                        outputArg += ':' + r.getStylesheet().asFile().getAbsolutePath();
                     }
                 }
                 args.add(outputArg);
@@ -219,10 +231,14 @@ public class FindBugsSpecBuilder {
             args.add(excludeBugsFilter.getPath());
         }
 
+        if (has(extraArgs)) {
+            args.addAll(extraArgs);
+        }
+
         for (File classFile : classes.getFiles()) {
             args.add(classFile.getAbsolutePath());
         }
-        
+
         return new FindBugsSpec(args, maxHeapSize, debugEnabled);
     }
 

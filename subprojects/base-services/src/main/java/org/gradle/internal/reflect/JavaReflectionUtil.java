@@ -28,9 +28,19 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.WeakHashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public class JavaReflectionUtil {
+    private static final WeakHashMap<Class<?>, ConcurrentMap<String, Boolean>> PROPERTY_CACHE = new WeakHashMap<Class<?>, ConcurrentMap<String, Boolean>>();
+
     /**
      * Locates the readable properties of the given type. Searches only public properties.
      */
@@ -79,11 +89,9 @@ public class JavaReflectionUtil {
      *
      * @throws NoSuchPropertyException
      */
-    public static <T, F> PropertyAccessor readableField(Class<T> target, Class<F> fieldType, String fieldName) throws NoSuchPropertyException {
-        Field field;
-        try {
-            field = target.getField(fieldName);
-        } catch (java.lang.NoSuchFieldException e) {
+    public static <T, F> PropertyAccessor<T, F> readableField(Class<T> target, Class<F> fieldType, String fieldName) throws NoSuchPropertyException {
+        Field field = findField(target, fieldName);
+        if (field == null) {
             throw new NoSuchPropertyException(String.format("Could not find field '%s' on class %s.", fieldName, target.getSimpleName()));
         }
 
@@ -95,28 +103,24 @@ public class JavaReflectionUtil {
      *
      * @throws NoSuchPropertyException
      */
-    public static <T, F> PropertyAccessor readableField(T target, Class<F> fieldType, String fieldName) throws NoSuchPropertyException {
+    public static <T, F> PropertyAccessor<T, F> readableField(T target, Class<F> fieldType, String fieldName) throws NoSuchPropertyException {
         @SuppressWarnings("unchecked")
         Class<T> targetClass = (Class<T>) target.getClass();
         return readableField(targetClass, fieldType, fieldName);
     }
 
     private static Method findGetterMethod(Class<?> target, String property) {
-        try {
-            Method getterMethod = target.getMethod(toMethodName("get", property));
-            if (isGetter(getterMethod)) {
-                return getterMethod;
+        Method[] methods = target.getMethods();
+        String getter = toMethodName("get", property);
+        String iser = toMethodName("is", property);
+        for (Method method : methods) {
+            String methodName = method.getName();
+            if (getter.equals(methodName) && isGetter(method)) {
+                return method;
             }
-        } catch (java.lang.NoSuchMethodException e) {
-            // Ignore
-        }
-        try {
-            Method getterMethod = target.getMethod(toMethodName("is", property));
-            if (isBooleanGetter(getterMethod)) {
-                return getterMethod;
+            if (iser.equals(methodName) && isBooleanGetter(method)) {
+                return method;
             }
-        } catch (java.lang.NoSuchMethodException e2) {
-            // Ignore
         }
         return null;
     }
@@ -136,6 +140,19 @@ public class JavaReflectionUtil {
      * @throws NoSuchPropertyException when the given property does not exist.
      */
     public static PropertyMutator writeableProperty(Class<?> target, String property) throws NoSuchPropertyException {
+        PropertyMutator mutator = writeablePropertyIfExists(target, property);
+        if (mutator != null) {
+            return mutator;
+        }
+        throw new NoSuchPropertyException(String.format("Could not find setter method for property '%s' on class %s.", property, target.getSimpleName()));
+    }
+
+    /**
+     * Locates the property with the given name as a writable property. Searches only public properties.
+     *
+     * Returns null if no such property exists.
+     */
+    public static PropertyMutator writeablePropertyIfExists(Class<?> target, String property) throws NoSuchPropertyException {
         String setterName = toMethodName("set", property);
         for (final Method method : target.getMethods()) {
             if (!method.getName().equals(setterName)) {
@@ -149,7 +166,30 @@ public class JavaReflectionUtil {
             }
             return new MethodBackedPropertyMutator(property, method);
         }
-        throw new NoSuchPropertyException(String.format("Could not find setter method for property '%s' on class %s.", property, target.getSimpleName()));
+        return null;
+    }
+
+    /**
+     * Locates the field with the given name as a writable property. Searches only public properties.
+     *
+     * @throws NoSuchPropertyException when the given property does not exist.
+     */
+    public static PropertyMutator writeableField(Class<?> target, String fieldName) throws NoSuchPropertyException {
+        Field field = findField(target, fieldName);
+        if (field != null) {
+            return new FieldBackedPropertyMutator(fieldName, field);
+        }
+        throw new NoSuchPropertyException(String.format("Could not find writeable field '%s' on class %s.", fieldName, target.getSimpleName()));
+    }
+
+    private static Field findField(Class<?> target, String fieldName) {
+        Field[] fields = target.getFields();
+        for (Field field : fields) {
+            if (fieldName.equals(field.getName())) {
+                return field;
+            }
+        }
+        return null;
     }
 
     private static String toMethodName(String prefix, String propertyName) {
@@ -241,19 +281,27 @@ public class JavaReflectionUtil {
     // Not hasProperty() because that's awkward with Groovy objects implementing it
     public static boolean propertyExists(Object target, String propertyName) {
         Class<?> targetType = target.getClass();
+        ConcurrentMap<String, Boolean> cached;
+        synchronized (PROPERTY_CACHE) {
+            cached = PROPERTY_CACHE.get(targetType);
+            if (cached == null) {
+                cached = new ConcurrentHashMap<String, Boolean>();
+                PROPERTY_CACHE.put(targetType, cached);
+            }
+        }
+        Boolean res = cached.get(propertyName);
+        if (res != null) {
+            return res;
+        }
         Method getterMethod = findGetterMethod(target.getClass(), propertyName);
         if (getterMethod == null) {
-            try {
-                targetType.getField(propertyName);
-                return true;
-            } catch (NoSuchFieldException ignore) {
-                // ignore
+            if (findField(targetType, propertyName) == null) {
+                cached.putIfAbsent(propertyName, false);
+                return false;
             }
-        } else {
-            return true;
         }
-
-        return false;
+        cached.putIfAbsent(propertyName, true);
+        return true;
     }
 
     private static class MultiMap<K, V> extends HashMap<K, List<V>> {
@@ -331,6 +379,14 @@ public class JavaReflectionUtil {
         return new InstantiatingFactory<T>(instantiator, type, args);
     }
 
+    public static boolean hasDefaultToString(Object object) {
+        try {
+            return object.getClass().getMethod("toString").getDeclaringClass() == Object.class;
+        } catch (java.lang.NoSuchMethodException e) {
+            throw new UncheckedException(e);
+        }
+    }
+
     private static class GetterMethodBackedPropertyAccessor<T, F> implements PropertyAccessor<T, F> {
         private final String property;
         private final Method method;
@@ -344,7 +400,7 @@ public class JavaReflectionUtil {
 
         @Override
         public String toString() {
-            return String.format("property %s.%s", method.getDeclaringClass().getSimpleName(), property);
+            return "property " + method.getDeclaringClass().getSimpleName() + "." + property;
         }
 
         public String getName() {
@@ -408,7 +464,7 @@ public class JavaReflectionUtil {
 
         @Override
         public String toString() {
-            return String.format("property %s.%s", method.getDeclaringClass().getSimpleName(), property);
+            return "property " + method.getDeclaringClass().getSimpleName() + "." + property;
         }
 
         public String getName() {
@@ -425,6 +481,37 @@ public class JavaReflectionUtil {
             } catch (InvocationTargetException e) {
                 throw UncheckedException.unwrapAndRethrow(e);
             } catch (Exception e) {
+                throw UncheckedException.throwAsUncheckedException(e);
+            }
+        }
+    }
+
+    private static class FieldBackedPropertyMutator implements PropertyMutator {
+        private final String name;
+        private final Field field;
+
+        public FieldBackedPropertyMutator(String name, Field field) {
+            this.name = name;
+            this.field = field;
+        }
+
+        @Override
+        public String toString() {
+            return "field " + field.getDeclaringClass().getSimpleName() + "." + name;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public Class<?> getType() {
+            return field.getType();
+        }
+
+        public void setValue(Object target, Object value) {
+            try {
+                field.set(target, value);
+            } catch (IllegalAccessException e) {
                 throw UncheckedException.throwAsUncheckedException(e);
             }
         }

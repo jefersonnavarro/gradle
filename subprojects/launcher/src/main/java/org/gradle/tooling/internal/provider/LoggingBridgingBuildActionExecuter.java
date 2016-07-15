@@ -15,15 +15,15 @@
  */
 package org.gradle.tooling.internal.provider;
 
-import org.gradle.initialization.BuildAction;
-import org.gradle.initialization.BuildCancellationToken;
-import org.gradle.internal.Factory;
+import org.gradle.initialization.BuildRequestContext;
+import org.gradle.internal.invocation.BuildAction;
+import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.launcher.exec.BuildActionExecuter;
-import org.gradle.logging.LoggingManagerInternal;
-import org.gradle.logging.internal.OutputEvent;
-import org.gradle.logging.internal.OutputEventListener;
-import org.gradle.logging.internal.ProgressCompleteEvent;
-import org.gradle.logging.internal.ProgressStartEvent;
+import org.gradle.internal.logging.LoggingManagerInternal;
+import org.gradle.internal.logging.events.OutputEvent;
+import org.gradle.internal.logging.events.OutputEventListener;
+import org.gradle.internal.logging.events.ProgressCompleteEvent;
+import org.gradle.internal.logging.events.ProgressStartEvent;
 import org.gradle.tooling.internal.protocol.ProgressListenerVersion1;
 import org.gradle.tooling.internal.provider.connection.ProviderOperationParameters;
 
@@ -32,17 +32,15 @@ import org.gradle.tooling.internal.provider.connection.ProviderOperationParamete
  * request.
  */
 public class LoggingBridgingBuildActionExecuter implements BuildActionExecuter<ProviderOperationParameters> {
-    private final Factory<LoggingManagerInternal> loggingManagerFactory;
+    private final LoggingManagerInternal loggingManager;
     private final BuildActionExecuter<ProviderOperationParameters> executer;
 
-    public LoggingBridgingBuildActionExecuter(BuildActionExecuter<ProviderOperationParameters> executer, Factory<LoggingManagerInternal> loggingManagerFactory) {
+    public LoggingBridgingBuildActionExecuter(BuildActionExecuter<ProviderOperationParameters> executer, LoggingManagerInternal loggingManager) {
         this.executer = executer;
-        this.loggingManagerFactory = loggingManagerFactory;
+        this.loggingManager = loggingManager;
     }
 
-    public <T> T execute(BuildAction<T> action, BuildCancellationToken cancellationToken, ProviderOperationParameters actionParameters) {
-        LoggingManagerInternal loggingManager = loggingManagerFactory.create();
-        loggingManager.removeAllOutputEventListeners();
+    public Object execute(BuildAction action, BuildRequestContext buildRequestContext, ProviderOperationParameters actionParameters, ServiceRegistry contextServices) {
         if (Boolean.TRUE.equals(actionParameters.isColorOutput(null)) && actionParameters.getStandardOutput() != null) {
             loggingManager.attachAnsiConsole(actionParameters.getStandardOutput());
         } else {
@@ -56,12 +54,11 @@ public class LoggingBridgingBuildActionExecuter implements BuildActionExecuter<P
         ProgressListenerVersion1 progressListener = actionParameters.getProgressListener();
         OutputEventListenerAdapter listener = new OutputEventListenerAdapter(progressListener);
         loggingManager.addOutputEventListener(listener);
-        loggingManager.setLevel(actionParameters.getBuildLogLevel());
+        loggingManager.setLevelInternal(actionParameters.getBuildLogLevel());
         loggingManager.start();
         try {
-            return executer.execute(action, cancellationToken, actionParameters);
+            return executer.execute(action, buildRequestContext, actionParameters, contextServices);
         } finally {
-            loggingManager.removeAllOutputEventListeners();
             loggingManager.stop();
         }
     }

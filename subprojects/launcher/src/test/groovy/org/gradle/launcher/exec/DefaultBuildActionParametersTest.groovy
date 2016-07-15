@@ -17,14 +17,14 @@
 package org.gradle.launcher.exec
 
 import org.gradle.api.logging.LogLevel
-import org.gradle.configuration.GradleLauncherMetaData
+import org.gradle.internal.classpath.ClassPath
 import spock.lang.Specification
 
 public class DefaultBuildActionParametersTest extends Specification {
 
     def "is serializable"() {
         given:
-        def params = new DefaultBuildActionParameters(new GradleLauncherMetaData(), System.currentTimeMillis(), System.properties, System.getenv(), new File("."), LogLevel.ERROR)
+        def params = new DefaultBuildActionParameters(System.properties, System.getenv(), new File("."), LogLevel.ERROR, true, false, true, ClassPath.EMPTY)
         ObjectOutputStream out = new ObjectOutputStream(new ByteArrayOutputStream());
 
         when:

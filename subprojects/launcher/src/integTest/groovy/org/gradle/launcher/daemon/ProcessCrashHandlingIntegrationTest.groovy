@@ -16,6 +16,7 @@
 
 package org.gradle.launcher.daemon
 
+import org.gradle.integtests.fixtures.daemon.DaemonIntegrationSpec
 import org.gradle.launcher.daemon.client.DaemonDisappearedException
 import org.gradle.launcher.daemon.logging.DaemonMessages
 import org.gradle.test.fixtures.server.http.CyclicBarrierHttpServer
@@ -52,6 +53,7 @@ task block << {
 """
 
         when:
+        executer.withStackTraceChecksDisabled() // daemon log may contain stack traces
         def build = executer.withTasks("block").start()
         server.waitFor()
         daemons.daemon.kill()
@@ -67,6 +69,7 @@ task block << {
         file("build.gradle") << "System.exit(0)"
 
         when:
+        executer.withStackTraceChecksDisabled() // daemon log may contain stack traces
         def failure = executer.runWithFailure()
 
         then:

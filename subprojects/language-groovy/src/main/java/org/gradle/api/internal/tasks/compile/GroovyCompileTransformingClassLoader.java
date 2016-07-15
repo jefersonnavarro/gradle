@@ -31,12 +31,12 @@ import java.util.List;
 class GroovyCompileTransformingClassLoader extends TransformingClassLoader {
     private static final String ANNOTATION_DESCRIPTOR = Type.getType(GroovyASTTransformationClass.class).getDescriptor();
 
-    public GroovyCompileTransformingClassLoader(ClassPath classpath) {
-        super(null, classpath);
+    public GroovyCompileTransformingClassLoader(ClassLoader parent, ClassPath classPath) {
+        super(parent, classPath);
     }
 
     @Override
-    protected byte[] transform(byte[] bytes) {
+    protected byte[] transform(String className, byte[] bytes) {
         // First scan for annotation, and short circuit transformation if not present
         ClassReader classReader = new ClassReader(bytes);
 
@@ -59,6 +59,7 @@ class GroovyCompileTransformingClassLoader extends TransformingClassLoader {
             super(Opcodes.ASM5);
         }
 
+        @Override
         public AnnotationVisitor visitAnnotation(String desc, boolean visible) {
             if (desc.equals(ANNOTATION_DESCRIPTOR)) {
                 found = true;
@@ -87,6 +88,7 @@ class GroovyCompileTransformingClassLoader extends TransformingClassLoader {
                 super(Opcodes.ASM5, annotationVisitor);
             }
 
+            @Override
             public AnnotationVisitor visitArray(String name) {
                 if (name.equals("classes")) {
                     return new AnnotationVisitor(Opcodes.ASM5){
@@ -109,6 +111,7 @@ class GroovyCompileTransformingClassLoader extends TransformingClassLoader {
                 }
             }
 
+            @Override
             public void visitEnd() {
                 if (!names.isEmpty()) {
                     AnnotationVisitor visitor = super.visitArray("value");

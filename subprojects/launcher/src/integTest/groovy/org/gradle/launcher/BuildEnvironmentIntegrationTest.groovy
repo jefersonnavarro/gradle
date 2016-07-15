@@ -17,6 +17,7 @@
 package org.gradle.launcher
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.integtests.fixtures.executer.ExecutionResult
 import spock.lang.Issue
 import spock.lang.Unroll
 
@@ -47,7 +48,7 @@ task check << {
     def "locale props given on the command line are respected"() {
         given:
         def nonDefaultLocale = getNonDefaultLocale()
-        executer.requireGradleHome()
+        executer.requireGradleDistribution()
         executer.withArguments("-Duser.language=$nonDefaultLocale.language", "-Duser.country=$nonDefaultLocale.country")
 
         and:
@@ -64,7 +65,7 @@ task check << {
     def "locale props given in gradle.properties are respected"() {
         given:
         def nonDefaultLocale = getNonDefaultLocale()
-        executer.requireGradleHome()
+        executer.requireGradleDistribution()
         file("gradle.properties") << "org.gradle.jvmargs=-Duser.language=$nonDefaultLocale.language -Duser.country=$nonDefaultLocale.country"
 
         and:
@@ -82,7 +83,7 @@ task check << {
         given:
         def nonDefaultEncoding = ["UTF-8", "US-ASCII"].collect { Charset.forName(it) }.find { it != Charset.defaultCharset() }
 
-        executer.requireGradleHome()
+        executer.requireGradleDistribution()
         file("gradle.properties") << "org.gradle.jvmargs=-Dfile.encoding=${nonDefaultEncoding.name()}"
 
         and:
@@ -101,7 +102,7 @@ task check << {
         given:
         def nonDefaultEncoding = ["UTF-8", "US-ASCII"].collect { Charset.forName(it) }.find { it != Charset.defaultCharset() }
 
-        executer.requireGradleHome()
+        executer.requireGradleDistribution()
         executer.withArgument("-Dfile.encoding=${nonDefaultEncoding.name()}")
 
         and:
@@ -113,6 +114,10 @@ task check << {
 
         expect:
         succeeds 'check'
+    }
+
+    Locale getTurkishLocale() {
+        new Locale("tr", "TR")
     }
 
     Locale getNonDefaultLocale() {
@@ -140,7 +145,7 @@ task check << {
         """, expectedEncoding
 
         when:
-        run "echoDefaultEncoding"
+        succeeds "echoDefaultEncoding"
 
         then:
         output.contains "default encoding: $expectedEncoding"
@@ -171,7 +176,6 @@ task check << {
             }
         """, executer.getDefaultCharacterEncoding()
 
-
         and:
         buildFile.write """
             apply plugin: "java"
@@ -183,7 +187,7 @@ task check << {
         """, expectedEncoding
 
         when:
-        run "echoDefaultEncoding"
+        succeeds "echoDefaultEncoding"
 
         then:
         output.contains "default encoding: $expectedEncoding"
@@ -195,4 +199,17 @@ task check << {
         null          | Charset.defaultCharset().name()
     }
 
+    @Override
+    protected ExecutionResult succeeds(String... tasks) {
+        executer.useDefaultBuildJvmArgs()
+        return super.succeeds(tasks)
+    }
+
+    @Issue("GRADLE-3470")
+    def "command-line options are not affected by locale"() {
+        given:
+        executer.withCommandLineGradleOpts("-Duser.language=${turkishLocale.language}", "-Duser.country=${turkishLocale.country}")
+        expect:
+        succeeds 'help', '--console=PLAIN'
+    }
 }

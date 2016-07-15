@@ -19,11 +19,9 @@ import org.gradle.api.GradleException
 import org.gradle.api.artifacts.Configuration
 import org.gradle.api.internal.file.collections.LazilyInitializedFileCollection
 import org.gradle.api.plugins.scala.ScalaBasePlugin
-import org.gradle.util.TestUtil
-import spock.lang.Specification
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
-class ScalaRuntimeTest extends Specification {
-    def project = TestUtil.createRootProject()
+class ScalaRuntimeTest extends AbstractProjectBuilderSpec {
 
     def setup() {
         project.pluginManager.apply(ScalaBasePlugin)
@@ -39,7 +37,8 @@ class ScalaRuntimeTest extends Specification {
 
         then:
         classpath instanceof LazilyInitializedFileCollection
-        with(classpath.delegate) {
+        classpath.sourceCollections.size() == 1
+        with(classpath.sourceCollections[0]) {
             it instanceof Configuration
             it.state == Configuration.State.UNRESOLVED
             it.dependencies.size() == 1

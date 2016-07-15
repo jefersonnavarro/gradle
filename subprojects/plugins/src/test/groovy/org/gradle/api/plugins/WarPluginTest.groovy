@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
- 
+
 package org.gradle.api.plugins
 
 import org.gradle.api.Project
@@ -21,8 +21,10 @@ import org.gradle.api.artifacts.Configuration
 import org.gradle.api.artifacts.Dependency
 import org.gradle.api.internal.artifacts.configurations.Configurations
 import org.gradle.api.tasks.bundling.War
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.TestUtil
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 
 import static org.gradle.api.tasks.TaskDependencyMatchers.dependsOn
@@ -33,10 +35,12 @@ import static org.junit.Assert.*
 class WarPluginTest {
     private Project project // = TestUtil.createRootProject()
     private WarPlugin warPlugin// = new WarPlugin()
+    @Rule
+    public TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
 
     @Before
     public void setUp() {
-        project = TestUtil.createRootProject()
+        project = TestUtil.create(tmpDir).rootProject()
         warPlugin = new WarPlugin()
     }
 
@@ -46,7 +50,7 @@ class WarPluginTest {
         assertTrue(project.getPlugins().hasPlugin(JavaPlugin));
         assertThat(project.convention.plugins.war, instanceOf(WarPluginConvention))
     }
-    
+
     @Test public void createsConfigurations() {
         warPlugin.apply(project)
 
@@ -100,6 +104,7 @@ class WarPluginTest {
 
     @Test public void usesRuntimeClasspathExcludingProvidedAsClasspath() {
         File compileJar = project.file('compile.jar')
+        File compileOnlyJar = project.file('compileOnly.jar')
         File runtimeJar = project.file('runtime.jar')
         File providedJar = project.file('provided.jar')
 
@@ -108,6 +113,7 @@ class WarPluginTest {
         project.dependencies {
             providedCompile project.files(providedJar)
             compile project.files(compileJar)
+            compileOnly project.files(compileOnlyJar)
             runtime project.files(runtimeJar)
         }
 
@@ -127,7 +133,7 @@ class WarPluginTest {
         warPlugin.apply(project)
 
         Configuration archiveConfiguration = project.getConfigurations().getByName(Dependency.ARCHIVES_CONFIGURATION);
-        assertThat(archiveConfiguration.getAllArtifacts().size(), equalTo(1)); 
-        assertThat(archiveConfiguration.getAllArtifacts().iterator().next().getType(), equalTo("war")); 
+        assertThat(archiveConfiguration.getAllArtifacts().size(), equalTo(1));
+        assertThat(archiveConfiguration.getAllArtifacts().iterator().next().getType(), equalTo("war"));
     }
 }

@@ -15,6 +15,7 @@
  */
 
 package org.gradle.language.base
+
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.Sample
 import org.junit.Rule
@@ -25,18 +26,25 @@ class ComponentTypeSampleIntegTest extends AbstractIntegrationSpec {
     def "can create custom component with binaries"() {
         given:
         sample componentTypeSample
-        componentTypeSample.dir.file("build.gradle") << """
+        componentTypeSample.dir.file("build.gradle") << '''
 
-task checkModel << {
-    assert project.componentSpecs.size() == 2
-    def titleAImage = project.componentSpecs.TitleA
-    assert titleAImage instanceof ImageComponent
-    assert titleAImage.projectPath == project.path
-    assert titleAImage.displayName == "DefaultImageComponent 'TitleA'"
-    assert titleAImage.binaries.collect{it.name}.sort() == ['TitleA14pxBinary', 'TitleA28pxBinary', 'TitleA40pxBinary']
+model {
+    tasks {
+        create("checkModel") {
+            def components = $.components
+            doLast {
+                assert components.size() == 2
+                def titleAImage = components.imageA
+                assert titleAImage instanceof ImageComponent
+                assert titleAImage.projectPath == project.path
+                assert titleAImage.displayName == "ImageComponent 'imageA'"
+                assert titleAImage.title == 'TitleA'
+                assert titleAImage.binaries.values()*.name.sort() == ['14px', '28px', '40px']
+            }
+        }
+    }
 }
-
-"""
+'''
         expect:
         succeeds "checkModel"
     }
@@ -47,9 +55,9 @@ task checkModel << {
         when:
         succeeds "assemble"
         then:
-        executedAndNotSkipped ":renderTitleA14pxSvg", ":TitleA14pxBinary", ":renderTitleA28pxSvg", ":TitleA28pxBinary", ":renderTitleA40pxSvg",
-                              ":TitleA40pxBinary", ":renderTitleB14pxSvg", ":TitleB14pxBinary", ":renderTitleB28pxSvg", ":TitleB28pxBinary",
-                              ":renderTitleB40pxSvg", ":TitleB40pxBinary", ":assemble"
+        executedAndNotSkipped ":renderImageA14pxSvg", ":imageA14px", ":renderImageA28pxSvg", ":imageA28px", ":renderImageA40pxSvg",
+                              ":imageA40px", ":renderImageB14pxSvg", ":imageB14px", ":renderImageB28pxSvg", ":imageB28px",
+                              ":renderImageB40pxSvg", ":imageB40px", ":assemble"
 
         and:
         componentTypeSample.dir.file("build/renderedSvg").assertHasDescendants("TitleA_14px.svg", "TitleA_28px.svg", "TitleA_40px.svg", "TitleB_14px.svg",

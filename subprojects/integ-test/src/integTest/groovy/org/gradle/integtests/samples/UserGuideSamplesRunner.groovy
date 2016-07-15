@@ -18,13 +18,22 @@ package org.gradle.integtests.samples
 import com.google.common.collect.ArrayListMultimap
 import groovy.io.PlatformLineWriter
 import org.apache.tools.ant.taskdefs.Delete
+import org.gradle.api.JavaVersion
 import org.gradle.api.Transformer
-import org.gradle.api.reporting.components.ComponentReportOutputFormatter
-import org.gradle.integtests.fixtures.executer.*
+import org.gradle.api.reporting.components.JvmComponentReportOutputFormatter
+import org.gradle.api.reporting.components.NativeComponentReportOutputFormatter
+import org.gradle.api.reporting.components.PlayComponentReportOutputFormatter
+import org.gradle.integtests.fixtures.AvailableJavaHomes
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
+import org.gradle.integtests.fixtures.executer.GradleDistribution
+import org.gradle.integtests.fixtures.executer.GradleExecuter
+import org.gradle.integtests.fixtures.executer.IntegrationTestBuildContext
+import org.gradle.integtests.fixtures.executer.UnderDevelopmentGradleDistribution
 import org.gradle.internal.SystemProperties
-import org.gradle.nativeplatform.fixtures.AvailableToolChains
+import org.gradle.internal.os.OperatingSystem
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.gradle.test.fixtures.maven.M2Installation
 import org.gradle.util.AntUtil
 import org.gradle.util.TextUtil
 import org.junit.Assert
@@ -36,7 +45,7 @@ import org.junit.runner.notification.RunNotifier
 import java.util.regex.Pattern
 
 class UserGuideSamplesRunner extends Runner {
-    private static final String NL = SystemProperties.lineSeparator
+    private static final String NL = SystemProperties.instance.lineSeparator
 
     private Class<?> testClass
     private Description description
@@ -112,25 +121,44 @@ class UserGuideSamplesRunner extends Runner {
             }
             notifier.fireTestFinished(childDescription)
         }
-        temporaryFolder.testDirectory.deleteDir()
+        try {
+            temporaryFolder.testDirectory.deleteDir()
+        } catch (IOException e) {
+            //ignore
+        }
     }
 
     private void cleanup(SampleRun run) {
-        // Clean up previous runs in the same subdir
-        File rootProjectDir = temporaryFolder.testDirectory.file(run.subDir)
-        if (rootProjectDir.exists()) {
-            def delete = new Delete()
-            delete.dir = rootProjectDir
-            delete.includes = "**/.gradle/** **/build/**"
-            AntUtil.execute(delete)
+        run.runs.each { singleRun ->
+            // Clean up previous runs in the same subdir
+            File rootProjectDir = temporaryFolder.testDirectory.file(singleRun.subDir)
+            if (rootProjectDir.exists()) {
+                def delete = new Delete()
+                delete.dir = rootProjectDir
+                delete.includes = "**/.gradle/** **/build/**"
+                AntUtil.execute(delete)
+            }
         }
     }
 
     private void runSample(GradleRun run) {
         try {
             println("Test Id: $run.id, dir: $run.subDir, execution dir: $run.executionDir args: $run.args")
+            def m2 = new M2Installation(temporaryFolder)
+            m2.execute(executer)
+            executer.noExtraLogging()
+                .inDirectory(run.executionDir)
+                .withArguments(run.args as String[])
+                .withEnvironmentVars(run.envs)
 
-            executer.noExtraLogging().inDirectory(run.executionDir).withArguments(run.args as String[]).withEnvironmentVars(run.envs)
+            if (!GradleContextualExecuter.longLivingProcess) {
+                //suppress daemon usage suggestions
+                executer.withArgument("--no-daemon")
+            }
+
+            if (run.allowDeprecation) {
+                executer.expectDeprecationWarning()
+            }
 
             def result = run.expectFailure ? executer.runWithFailure() : executer.run()
             if (run.outputFile) {
@@ -184,12 +212,12 @@ class UserGuideSamplesRunner extends Runner {
         def samplesXml = new File(userguideInfoDir, 'samples.xml')
         assertSamplesGenerated(samplesXml.exists())
         def samples = new XmlParser().parse(samplesXml)
-        def samplesByDir = ArrayListMultimap.create()
+        def samplesByDir = ArrayListMultimap.<String, GradleRun> create()
 
         def children = samples.children()
         assertSamplesGenerated(!children.isEmpty())
 
-        children.each {Node sample ->
+        children.eachWithIndex { Node sample, int index ->
             def id = sample.'@id'
             def dir = sample.'@dir'
             def args = sample.'@args'
@@ -205,6 +233,7 @@ class UserGuideSamplesRunner extends Runner {
             run.ignoreExtraLines = ignoreExtraLines
             run.ignoreLineOrder = ignoreLineOrder
             run.expectFailure = expectFailure
+            run.index = index
 
             sample.file.each { file -> run.files << file.'@path' }
             sample.dir.each { file -> run.dirs << file.'@path' }
@@ -220,10 +249,21 @@ class UserGuideSamplesRunner extends Runner {
         samplesByDir.get('userguide/multiproject/dependencies/firstMessages/messages')*.brokenForParallel = true
         samplesByDir.get('userguide/multiproject/dependencies/messagesHack/messages')*.brokenForParallel = true
 
+        def java6CrossCompilation = ['java', 'groovy', 'scala'].collectMany {
+            samplesByDir.get(it + '/crossCompilation')
+        }
+
+        def java6jdk = AvailableJavaHomes.getJdk(JavaVersion.VERSION_1_6)
+        if (!java6jdk || OperatingSystem.current().isWindows()) {
+            java6CrossCompilation*.expectFailure = true
+        } else {
+            java6CrossCompilation*.args = ['build', "-Pjava6Home=${java6jdk.javaHome.absolutePath}"]
+        }
+
         Map<String, SampleRun> samplesById = new TreeMap<String, SampleRun>()
 
         // Remove duplicates for a given directory.
-        samplesByDir.asMap().values().collect {List<GradleRun> dirSamples ->
+        samplesByDir.asMap().values().collect { List<GradleRun> dirSamples ->
             def runs = dirSamples.findAll { it.mustRun }
             if (!runs) {
                 // No samples in this dir have any args, so just run gradle tasks in the dir
@@ -243,22 +283,23 @@ class UserGuideSamplesRunner extends Runner {
             sampleRun.runs << run
         }
 
-        samplesById.nativeComponentReport.runs.each { it.outputFormatter = new ComponentReportOutputFormatter() }
-        samplesById.completeCUnitExample.runs.each {
-            if (AvailableToolChains.defaultToolChain.visualCpp) {
-                it.outputFile = it.outputFile.replace(".out", "-visualCpp.out")
-            }
-        }
+        samplesById.nativeComponentReport.runs.each { it.outputFormatter = new NativeComponentReportOutputFormatter() }
+        samplesById.playComponentReport.runs.each { it.outputFormatter = new PlayComponentReportOutputFormatter() }
+        samplesById.javaLibraryComponentReport.runs.each { it.outputFormatter = new JvmComponentReportOutputFormatter() }
+
         if ("true".equals(System.getProperty("org.gradle.integtest.unknownos"))) {
             // Ignore for now
             samplesById.remove('completeCUnitExample')
         }
 
+        samplesById.each { id, sample ->
+            sample.runs = sample.runs.sort { it.index }
+        }
         return samplesById.values()
     }
 
     private void assertSamplesGenerated(boolean assertion) {
-        assert assertion : """Couldn't find any samples. Most likely, samples.xml was not generated.
+        assert assertion: """Couldn't find any samples. Most likely, samples.xml was not generated.
 Please run 'gradle docs:userguideDocbook' first"""
     }
 
@@ -273,8 +314,10 @@ Please run 'gradle docs:userguideDocbook' first"""
         boolean ignoreExtraLines
         boolean ignoreLineOrder
         boolean brokenForParallel
+        boolean allowDeprecation
         List files = []
         List dirs = []
+        int index
 
         boolean getMustRun() {
             return args || files || dirs

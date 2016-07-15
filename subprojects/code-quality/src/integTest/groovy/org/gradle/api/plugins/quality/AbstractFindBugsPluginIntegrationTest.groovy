@@ -17,15 +17,22 @@ package org.gradle.api.plugins.quality
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
+import org.gradle.util.Matchers
+import org.gradle.util.Resources
 import org.hamcrest.Matcher
+import org.junit.Rule
 import spock.lang.IgnoreIf
 import spock.lang.Issue
 
 import static org.gradle.util.Matchers.containsLine
+import static org.gradle.util.TextUtil.normaliseFileSeparators
 import static org.hamcrest.Matchers.containsString
 import static org.hamcrest.Matchers.startsWith
 
 abstract class AbstractFindBugsPluginIntegrationTest extends AbstractIntegrationSpec {
+
+    @Rule
+    public final Resources resources = new Resources()
 
     def setup() {
         writeBuildFile()
@@ -185,7 +192,28 @@ abstract class AbstractFindBugsPluginIntegrationTest extends AbstractIntegration
         then:
         file("build/reports/findbugs/main.html").exists()
     }
-    
+
+    def "can generate html reports with a custom stylesheet"() {
+        given:
+        buildFile << """
+            findbugsMain.reports {
+                xml.enabled false
+                html.enabled true
+                html.stylesheet resources.text.fromFile('${sampleStylesheet()}')
+            }
+        """
+
+        and:
+        goodCode()
+
+        when:
+        run "findbugsMain"
+
+        then:
+        file("build/reports/findbugs/main.html").exists()
+        file("build/reports/findbugs/main.html").assertContents(containsString("A custom Findbugs stylesheet"))
+    }
+
     def "can generate xml with messages reports"() {
         given:
         buildFile << """
@@ -387,9 +415,51 @@ abstract class AbstractFindBugsPluginIntegrationTest extends AbstractIntegration
 
         expect:
         fails("check")
+        failure.assertHasDescription "Execution failed for task ':findbugsMain'."
+        failure.assertHasCause 'Failed to run Gradle FindBugs Worker'
+        failure.assertThatCause(Matchers.matchesRegexp("org[\\./]apache[\\./]bcel[\\./]classfile[\\./]ClassFormatException"))
+    }
+
+    def "valid adjustPriority extra args"() {
+        given:
+        file("src/main/java/org/gradle/ClassUsingCaseConversion.java") <<
+            'package org.gradle; public class ClassUsingCaseConversion { public boolean useConversion() { return "Hi".toUpperCase().equals("HI"); } }'
+
+        expect:
+        succeeds("check")
+
+        when:
+        // Test extraArgs using DM_CONVERT_CASE which FindBugs treats as a LOW confidence warning.  We will use
+        // extraArgs to boost the confidence which should make it be reported
+        buildFile << """
+            findbugsMain {
+                extraArgs '-adjustPriority', 'DM_CONVERT_CASE=raise,DM_CONVERT_CASE=raise'
+            }
+        """
+
+        then:
+        fails("check")
+        failure.assertHasDescription("Execution failed for task ':findbugsMain'.")
+        failure.assertThatCause(startsWith("FindBugs rule violations were found. See the report at:"))
+        file("build/reports/findbugs/main.xml").exists()
+        file("build/reports/findbugs/main.xml").assertContents(containsClass("org.gradle.ClassUsingCaseConversion"))
+        file("build/reports/findbugs/main.xml").assertContents(containsString("DM_CONVERT_CASE"))
+    }
+
+    def "fails when given invalid extraArgs"() {
+        given:
+        goodCode()
+        and:
+        buildFile << """
+            findbugsMain {
+                extraArgs 'gobbledygook'
+            }
+        """
+
+        expect:
+        fails "check"
         failure.assertHasCause 'FindBugs encountered an error.'
         failure.assertHasDescription "Execution failed for task ':findbugsMain'."
-        errorOutput.contains 'Caused by: java.lang.NoClassDefFoundError'
     }
 
     private static boolean containsXmlMessages(File xmlReportFile) {
@@ -408,6 +478,10 @@ abstract class AbstractFindBugsPluginIntegrationTest extends AbstractIntegration
         file('src/main/java/org/gradle/BadClass.java') << 'package org.gradle; public class BadClass { public boolean isFoo(Object arg) { System.exit(1); return true; } }'
         // Has ES_COMPARING_PARAMETER_STRING_WITH_EQ
         file('src/test/java/org/gradle/BadClassTest.java') << 'package org.gradle; public class BadClassTest { public boolean isFoo(Object arg) { return "true" == "false"; } }'
+    }
+
+    private sampleStylesheet() {
+        normaliseFileSeparators(resources.getResource('/findbugs-custom-stylesheet.xsl').absolutePath)
     }
 
     private Matcher<String> containsClass(String className) {

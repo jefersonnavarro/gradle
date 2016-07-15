@@ -29,6 +29,11 @@ class SrcDistributionIntegrationSpec extends DistributionIntegrationSpec {
         "src"
     }
 
+    @Override
+    int getLibJarsCount() {
+        0
+    }
+
     @Requires(TestPrecondition.NOT_WINDOWS)
     def sourceZipContents() {
         given:
@@ -39,7 +44,7 @@ class SrcDistributionIntegrationSpec extends DistributionIntegrationSpec {
 
         when:
         executer.with {
-            withDeprecationChecksDisabled()
+            expectDeprecationWarning()
             inDirectory(contentsDir)
             usingExecutable('gradlew')
             withTasks('binZip')

@@ -17,6 +17,7 @@
 package org.gradle.plugin
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
+import org.gradle.test.fixtures.file.LeaksFileHandles
 import org.gradle.test.fixtures.plugin.PluginBuilder
 import spock.lang.Issue
 
@@ -197,6 +198,7 @@ class ScriptPluginClassLoadingIntegrationTest extends AbstractIntegrationSpec {
         failure.assertThatCause(containsText("unable to resolve class Foo"))
     }
 
+    @LeaksFileHandles("failing on Windows only - file handle on plugin.jar")
     def "script plugin buildscript does not affect client"() {
         given:
         def jar = file("plugin.jar")
@@ -213,6 +215,8 @@ class ScriptPluginClassLoadingIntegrationTest extends AbstractIntegrationSpec {
                 assert false
             } catch (ClassNotFoundException ignore) {
                 println "not in root"
+            } finally {
+                getClass().classLoader.close()
             }
 
         """
@@ -232,6 +236,8 @@ class ScriptPluginClassLoadingIntegrationTest extends AbstractIntegrationSpec {
                 assert false
             } catch (ClassNotFoundException ignore) {
                 println "not in sub"
+            } finally {
+                getClass().classLoader.close()
             }
         """
 
@@ -243,7 +249,8 @@ class ScriptPluginClassLoadingIntegrationTest extends AbstractIntegrationSpec {
         output.contains "not in sub"
     }
 
-    def "script plugin cannot access classed added by buildscript in applying script"() {
+    @LeaksFileHandles("failing on Windows only - file handle on plugin.jar")
+    def "script plugin cannot access classes added by buildscript in applying script"() {
         given:
         def jar = file("plugin.jar")
         pluginBuilder.addPlugin("project.task('hello')")
@@ -266,6 +273,8 @@ class ScriptPluginClassLoadingIntegrationTest extends AbstractIntegrationSpec {
                 assert false
             } catch (ClassNotFoundException ignore) {
                 println "not in script"
+            } finally {
+                getClass().classLoader.close()
             }
         """
 

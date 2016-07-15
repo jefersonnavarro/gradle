@@ -16,38 +16,42 @@
 
 package org.gradle.performance.fixture
 
-class CrossBuildPerformanceResults {
-    String testId
+import org.gradle.internal.exceptions.DefaultMultiCauseException
+
+class CrossBuildPerformanceResults extends PerformanceTestResult {
     String testGroup
-    String jvm
-    String versionUnderTest
-    String operatingSystem
-    long testTime
-    String vcsBranch
-    String vcsCommit
 
-    private final Map<BuildSpecification, MeasuredOperationList> buildResults = new LinkedHashMap<>()
-
-    def clear() {
-        buildResults.clear()
-    }
+    private final Map<BuildDisplayInfo, MeasuredOperationList> buildResults = new LinkedHashMap<>()
 
     @Override
     String toString() {
         return testId
     }
 
-    MeasuredOperationList buildResult(BuildSpecification buildSpecification) {
-        def buildResult = buildResults[buildSpecification]
+    protected Map<BuildDisplayInfo, MeasuredOperationList> getBuildResults() {
+        buildResults
+    }
+
+    MeasuredOperationList buildResult(BuildDisplayInfo buildInfo) {
+        def buildResult = buildResults[buildInfo]
         if (buildResult == null) {
-            buildResult = new MeasuredOperationList(name: buildSpecification.displayName)
-            buildResults[buildSpecification] = buildResult
+            buildResult = new MeasuredOperationList(name: buildInfo.displayName)
+            buildResults[buildInfo] = buildResult
         }
         return buildResult
     }
 
-    public Set<BuildSpecification> getBuildSpecifications() {
-        return buildResults.keySet();
+    public Set<BuildDisplayInfo> getBuilds() {
+        buildResults.keySet()
+    }
+
+    MeasuredOperationList buildResult(String displayName) {
+        def matches = builds.findAll { it.displayName == displayName }
+        if (matches.empty) {
+            return new MeasuredOperationList(name: displayName)
+        }
+        assert matches.size() == 1
+        buildResult(matches.first())
     }
 
     List<Exception> getFailures() {
@@ -57,6 +61,8 @@ class CrossBuildPerformanceResults {
     }
 
     void assertEveryBuildSucceeds() {
-        assert failures.empty
+        if (failures) {
+            throw new DefaultMultiCauseException("Performance test '$testId' failed", failures)
+        }
     }
 }

@@ -14,14 +14,14 @@ Following these simple steps can help ensure that your code contribution ends up
 
 This is the general process for contributing code to the Gradle project.
 
-1. Complete and electronically sign a [Gradleware CLA](http://www.gradleware.com/contributor-agreement).
+1. Complete and electronically sign a [Gradle CLA](http://gradle.org/contributor-license-agreement/).
 You'll need to sign one of these before any code contributions can be accepted into the Gradle codebase.
 2. Before starting to work on a feature or a fix, it's generally a good idea to open a discussion about your proposed changes on the [Gradle Developer List](https://groups.google.com/forum/#!forum/gradle-dev).
 Doing so helps to ensure that:
     1. You understand how your proposed changes fit with the strategic goals of the Gradle project.
     2. You can get feedback on your proposed changes, and suggestions as to the best approach to implementation.
     3. The Gradle core devs can create a [Jira issue](https://issues.gradle.org) for the work if deemed necessary.
-    4. You and the other devs can collaborate in creating a [design document](design-docs) if deemed necessary.
+    4. You and the other devs can collaborate in creating a [design document](design-docs). This is necessary for all changes that affects the behaviour or public API.
 3. All code contributions should be submitted via a [pull request](https://help.github.com/articles/using-pull-requests) from a [forked GitHub repository](https://help.github.com/articles/fork-a-repo).
 4. Once received, the pull request will be reviewed by a Gradle core developer. Your pull request will likely get more attention if you:
     1. Have first discussed the change on the Gradle Developer list.
@@ -41,7 +41,7 @@ If you're not sure where to start, ask on the developer list. There's likely a n
 
 Try to ensure that your code & tests will run successfully on Java 6, and on both *nix and Windows platforms.
 The [Gradle CI](http://builds.gradle.org/) will verify this, but it helps if things work first time.
-Pull requests are verified on [Travis CI] (https://travis-ci.org/gradle/gradle/pull_requests).
+Pull requests are verified on [Travis CI](https://travis-ci.org/gradle/gradle/pull_requests).
 
 1. Avoid using features introduced in Java 1.7 or later
 2. Be careful to normalise file paths in tests. The `org.gradle.util.TextUtil` class has some useful utility functions for this purpose.
@@ -59,6 +59,7 @@ Follow these guidelines when creating public commits and writing commit messages
 Example:
 
     GRADLE-2001 Ensure that classpath does not contain duplicate entries
+    (blank line)
     - details
       - sub-details
     - more details

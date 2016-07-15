@@ -15,6 +15,8 @@
  */
 package org.gradle.api.publish.maven
 
+import org.gradle.integtests.fixtures.publish.maven.AbstractMavenPublishIntegTest
+
 class MavenPublishEarIntegTest extends AbstractMavenPublishIntegTest {
     public void "can publish ear module"() {
         def earModule = mavenRepo.module("org.gradle.test", "publishEar", "1.9")
@@ -36,7 +38,7 @@ repositories {
 }
 
 dependencies {
-    compile "commons-collections:commons-collections:3.2.1"
+    compile "commons-collections:commons-collections:3.2.2"
     runtime "commons-io:commons-io:1.4"
 }
 

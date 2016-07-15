@@ -20,8 +20,6 @@ import org.gradle.integtests.fixtures.TestResources
 import org.gradle.util.GradleVersion
 import org.junit.Rule
 
-import static org.gradle.util.TextUtil.toPlatformLineSeparators
-
 class HelpTaskIntegrationTest extends AbstractIntegrationSpec {
 
     @Rule
@@ -35,7 +33,7 @@ class HelpTaskIntegrationTest extends AbstractIntegrationSpec {
         run "help"
 
         then:
-        output.startsWith(toPlatformLineSeparators(""":help
+        result.normalizedOutput == """:help
 
 Welcome to Gradle ${GradleVersion.current().version}.
 
@@ -48,14 +46,16 @@ To see a list of command-line options, run gradle --help
 To see more detail about a task, run gradle help --task <task>
 
 BUILD SUCCESSFUL
-"""))
+
+Total time: 1 secs
+"""
     }
 
     def "can print help for implicit tasks"() {
         when:
         run "help", "--task", "dependencies"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for dependencies
+        output.contains """Detailed task information for dependencies
 
 Path
      :dependencies
@@ -72,14 +72,14 @@ Description
 Group
      help
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
     }
 
     def "can print help for placeholder added tasks"() {
         when:
         run "help", "--task", "help"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for help
+        output.contains """Detailed task information for help
 
 Path
      :help
@@ -96,7 +96,7 @@ Description
 Group
      help
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
     }
 
     def "help for tasks same type different descriptions"() {
@@ -117,7 +117,7 @@ include ":someproj"
         when:
         run "help", "--task", "hello"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for hello
+        output.contains """Detailed task information for hello
 
 Paths
      :hello
@@ -133,7 +133,7 @@ Descriptions
 Group
      -
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
     }
 
     def "help for tasks same type different groups"() {
@@ -160,7 +160,7 @@ include ":someproj2"
         when:
         run "help", "--task", "hello"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for hello
+        output.contains """Detailed task information for hello
 
 Paths
      :hello
@@ -178,7 +178,7 @@ Groups
      (:someproj1:hello) group of subproject task
      (:someproj2:hello) group of subproject task
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
     }
 
     def "matchingTasksOfSameType"() {
@@ -188,7 +188,7 @@ BUILD SUCCESSFUL"""))
         when:
         run "help", "--task", ":jar"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for :jar
+        output.contains """Detailed task information for :jar
 
 Path
      :jar
@@ -202,12 +202,12 @@ Description
 Group
      build
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
 
         when:
         run "help", "--task", "jar"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for jar
+        output.contains """Detailed task information for jar
 
 Paths
      :jar
@@ -222,7 +222,7 @@ Description
 Group
      build
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
 
     }
 
@@ -242,7 +242,7 @@ BUILD SUCCESSFUL"""))
         when:
         run "help", "--task", "someTask"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for someTask
+        output.contains """Detailed task information for someTask
 
 Path
      :subproj1:someTask
@@ -272,7 +272,7 @@ Group
 
 ----------------------
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
     }
 
     def "error message contains possible candidates"() {
@@ -282,7 +282,7 @@ BUILD SUCCESSFUL"""))
         when:
         fails "help", "--task", "bTask"
         then:
-        errorOutput.contains(" Task 'bTask' not found in root project '${testDirectory.getName()}'. Some candidates are: 'aTask', 'tasks'")
+        failure.assertHasCause("Task 'bTask' not found in root project '${testDirectory.getName()}'. Some candidates are: 'aTask', 'tasks'")
     }
 
     def "tasks can be defined by camelCase matching"() {
@@ -293,7 +293,7 @@ BUILD SUCCESSFUL"""))
         when:
         run "help", "--task", "sCC"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for sCC
+        output.contains """Detailed task information for sCC
 
 Path
      :someCamelCaseTask
@@ -307,7 +307,7 @@ Description
 Group
      -
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
 
     }
 
@@ -325,7 +325,7 @@ BUILD SUCCESSFUL"""))
         when:
         run "help", "--task", "hello"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for hello
+        output.contains """Detailed task information for hello
 
 Paths
      :hello
@@ -350,14 +350,14 @@ Description
 Group
      -
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
     }
 
     def "listsCommonDynamicAvailableValues"() {
         when:
         run "help", "--task", "hello"
         then:
-        output.contains(toPlatformLineSeparators("""Detailed task information for hello
+        output.contains """Detailed task information for hello
 
 Paths
      :sub1:hello
@@ -371,6 +371,7 @@ Options
                        Available values are:
                             optionA
                             optionB
+                            optionC
 
 Description
      -
@@ -378,7 +379,20 @@ Description
 Group
      -
 
-BUILD SUCCESSFUL"""))
+BUILD SUCCESSFUL"""
     }
 
+    def "sortsOptionsBySpecifiedOrder"() {
+        when:
+        run "help", "--task", "hello"
+
+        then:
+        output.contains """
+Options
+     --valueC     descC
+
+     --valueB     descB
+
+     --valueA     descA"""
+    }
 }

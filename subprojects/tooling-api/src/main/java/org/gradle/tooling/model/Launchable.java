@@ -29,6 +29,14 @@ import org.gradle.api.Nullable;
 @Incubating
 public interface Launchable {
     /**
+     * Returns the identifier for the Gradle project that this model originated from.
+     *
+     * @since 2.13
+     */
+    @Incubating
+    ProjectIdentifier getProjectIdentifier();
+
+    /**
      * Returns a human-consumable display name for this launchable.
      *
      * @return Display name of this launchable.
@@ -46,8 +54,8 @@ public interface Launchable {
     String getDescription();
 
     /**
-     * Returns whether launchable is public or not.
-     * Public tasks are those that have a non-empty {@code group} property.
+     * Returns whether launchable is public or not. A public launchable is one that is considered a public 'entry point' to the build, that is interesting for
+     * an end user of the build to run.
      *
      * @return Public property.
      * @since 2.1

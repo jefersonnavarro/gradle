@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 package org.gradle.nativeplatform
+
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
 import org.gradle.nativeplatform.fixtures.app.CppHelloWorldApp
 import org.gradle.nativeplatform.fixtures.app.ExeWithLibraryUsingLibraryHelloWorldApp
@@ -28,10 +29,14 @@ class LibraryApiDependenciesIntegrationTest extends AbstractInstalledToolChainIn
         buildFile << """
 apply plugin: "cpp"
 
-// Allow static libraries to be linked into shared
-binaries.withType(StaticLibraryBinarySpec) {
-    if (toolChain in Gcc || toolChain in Clang) {
-        cppCompiler.args '-fPIC'
+model {
+    // Allow static libraries to be linked into shared
+    binaries {
+        withType(StaticLibraryBinarySpec) {
+            if (toolChain in Gcc || toolChain in Clang) {
+                cppCompiler.args '-fPIC'
+            }
+        }
     }
 }
 """
@@ -70,11 +75,11 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == app.englishOutput
+        installation("build/install/main").exec().out == app.englishOutput
 
         where:
         notationName | notation
-        "direct"     | "comp.helloApi.api"
+        "direct"     | "\$('components.helloApi').api"
         "map"        | "library: 'helloApi', linkage: 'api'"
     }
 
@@ -108,7 +113,7 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == "Hello from the utility library"
+        installation("build/install/main").exec().out == "Hello from the utility library"
     }
 
     def "executable compiles using functions defined in utility library with build type variants"() {
@@ -144,9 +149,7 @@ model {
             binaries.all { binary ->
                 sources {
                     buildTypeSources(CppSourceSet) {
-                        sources {
-                            exportedHeaders.srcDir "src/util/\${binary.buildType.name}"
-                        }
+                        exportedHeaders.srcDir "src/util/\${binary.buildType.name}"
                     }
                 }
             }
@@ -155,11 +158,11 @@ model {
 }
 """
         when:
-        succeeds "installDebugMainExecutable", "installReleaseMainExecutable"
+        succeeds "installMainDebugExecutable", "installMainReleaseExecutable"
 
         then:
-        installation("build/install/mainExecutable/debug").exec().out == "Hello from the debug library"
-        installation("build/install/mainExecutable/release").exec().out == "Hello from the release library"
+        installation("build/install/main/debug").exec().out == "Hello from the debug library"
+        installation("build/install/main/release").exec().out == "Hello from the release library"
     }
 
     def "can choose alternative library implementation of api"() {
@@ -194,7 +197,7 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == app.alternateLibraryOutput
+        installation("build/install/main").exec().out == app.alternateLibraryOutput
     }
 
     def "can use api linkage for component graph with library dependency cycle"() {
@@ -232,7 +235,7 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == app.englishOutput
+        installation("build/install/main").exec().out == app.englishOutput
     }
 
     def "can compile but not link when executable depends on api of library required for linking"() {

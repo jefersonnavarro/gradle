@@ -20,18 +20,12 @@ import org.gradle.api.internal.artifacts.ivyservice.resolveengine.result.Compone
 import org.gradle.internal.component.external.model.DefaultModuleComponentArtifactIdentifier;
 import org.gradle.internal.component.external.model.ModuleComponentArtifactIdentifier;
 import org.gradle.internal.component.model.IvyArtifactName;
-import org.gradle.messaging.serialize.Decoder;
-import org.gradle.messaging.serialize.Encoder;
-import org.gradle.messaging.serialize.MapSerializer;
-import org.gradle.messaging.serialize.Serializer;
-
-import java.util.Map;
-
-import static org.gradle.messaging.serialize.BaseSerializerFactory.STRING_SERIALIZER;
+import org.gradle.internal.serialize.Decoder;
+import org.gradle.internal.serialize.Encoder;
+import org.gradle.internal.serialize.Serializer;
 
 public class ModuleVersionArtifactIdentifierSerializer implements Serializer<ModuleComponentArtifactIdentifier> {
     private final ComponentIdentifierSerializer componentIdentifierSerializer = new ComponentIdentifierSerializer();
-    private final MapSerializer<String, String> attributesSerializer = new MapSerializer<String, String>(STRING_SERIALIZER, STRING_SERIALIZER);
 
     public void write(Encoder encoder, ModuleComponentArtifactIdentifier value) throws Exception {
         DefaultModuleComponentArtifactIdentifier artifact = (DefaultModuleComponentArtifactIdentifier) value;
@@ -40,7 +34,7 @@ public class ModuleVersionArtifactIdentifierSerializer implements Serializer<Mod
         encoder.writeString(ivyArtifactName.getName());
         encoder.writeString(ivyArtifactName.getType());
         encoder.writeNullableString(ivyArtifactName.getExtension());
-        attributesSerializer.write(encoder, ivyArtifactName.getAttributes());
+        encoder.writeNullableString(ivyArtifactName.getClassifier());
     }
 
     public ModuleComponentArtifactIdentifier read(Decoder decoder) throws Exception {
@@ -48,7 +42,7 @@ public class ModuleVersionArtifactIdentifierSerializer implements Serializer<Mod
         String artifactName = decoder.readString();
         String type = decoder.readString();
         String extension = decoder.readNullableString();
-        Map<String, String> attributes = attributesSerializer.read(decoder);
-        return new DefaultModuleComponentArtifactIdentifier(componentIdentifier, artifactName, type, extension, attributes);
+        String classifier = decoder.readNullableString();
+        return new DefaultModuleComponentArtifactIdentifier(componentIdentifier, artifactName, type, extension, classifier);
     }
 }

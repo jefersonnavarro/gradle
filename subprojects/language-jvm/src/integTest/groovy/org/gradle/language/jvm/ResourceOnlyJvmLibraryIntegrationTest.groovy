@@ -20,8 +20,9 @@ import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.test.fixtures.archive.JarTestFixture
 
 class ResourceOnlyJvmLibraryIntegrationTest extends AbstractIntegrationSpec {
+
     def "can define a library containing resources only"() {
-        buildFile << """
+        buildFile << '''
 plugins {
     id 'jvm-component'
     id 'jvm-resources'
@@ -30,22 +31,28 @@ model {
     components {
         myLib(JvmLibrarySpec)
     }
-}
+    tasks {
+        create("validate") {
+            def components = $.components
+            def sources = $.sources
+            def binaries = $.binaries
+            doLast {
+                def myLib = components.myLib
+                assert myLib instanceof JvmLibrarySpec
 
-task validate << {
-    def myLib = componentSpecs.myLib
-    assert myLib instanceof JvmLibrarySpec
+                assert myLib.sources.size() == 1
+                assert myLib.sources.resources instanceof JvmResourceSet
 
-    assert myLib.sources.size() == 1
-    assert myLib.sources.resources instanceof JvmResourceSet
+                assert sources as Set == myLib.sources as Set
 
-    assert sources as Set == myLib.sources as Set
-
-    binaries.withType(JarBinarySpec) { jvmBinary ->
-        assert jvmBinary.source == myLib.source
+                binaries.withType(JarBinarySpec).each { jvmBinary ->
+                    assert jvmBinary.inputs.toList() == myLib.sources.values().toList()
+                }
+            }
+        }
     }
 }
-"""
+'''
 
         expect:
         run 'validate'
@@ -70,7 +77,7 @@ model {
         run 'assemble'
 
         then:
-        def jar = jarFile('build/jars/myLibJar/myLib.jar')
+        def jar = jarFile('build/jars/myLib/jar/myLib.jar')
         jar.hasDescendants("org/gradle/thing.txt")
         jar.assertFilePresent("org/gradle/thing.txt", "hi")
     }
@@ -99,7 +106,7 @@ model {
         run 'assemble'
 
         then:
-        def jar = jarFile('build/jars/myLibJar/myLib.jar')
+        def jar = jarFile('build/jars/myLib/jar/myLib.jar')
         jar.hasDescendants("thing.txt", "org/gradle/thing.txt")
         jar.assertFilePresent("thing.txt", "hi")
         jar.assertFilePresent("org/gradle/thing.txt", "hi")

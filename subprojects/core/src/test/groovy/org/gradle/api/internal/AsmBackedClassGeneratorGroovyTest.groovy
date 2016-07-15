@@ -16,12 +16,15 @@
 
 package org.gradle.api.internal
 
+import com.google.common.base.Function
 import org.gradle.api.Action
 import org.gradle.api.NonExtensible
 import org.gradle.api.plugins.ExtensionAware
+import org.gradle.internal.BiAction
 import org.gradle.internal.reflect.DirectInstantiator
 import org.gradle.internal.service.ServiceRegistry
 import org.gradle.internal.typeconversion.TypeConversionException
+import org.gradle.internal.util.BiFunction
 import org.gradle.util.ConfigureUtil
 import spock.lang.Issue
 import spock.lang.Specification
@@ -31,10 +34,10 @@ import javax.inject.Inject
 class AsmBackedClassGeneratorGroovyTest extends Specification {
 
     def generator = new AsmBackedClassGenerator()
-    def instantiator = new ClassGeneratorBackedInstantiator(generator, new DirectInstantiator())
+    def instantiator = new ClassGeneratorBackedInstantiator(generator, DirectInstantiator.INSTANCE)
 
     private <T> T create(Class<T> clazz, Object... args) {
-        instantiator.newInstance(clazz, *args)
+        instantiator.newInstance(clazz, args) as T
     }
 
     @Issue("GRADLE-2417")
@@ -94,7 +97,7 @@ class AsmBackedClassGeneratorGroovyTest extends Specification {
         then:
         tester.lastMethod == "oneAction"
         tester.lastArgs.size() == 1
-        tester.lastArgs.first() instanceof ClosureBackedAction
+        tester.lastArgs.first() instanceof Action
 
         when:
         tester.twoArgs("1") { assert it == "subject" }
@@ -103,7 +106,7 @@ class AsmBackedClassGeneratorGroovyTest extends Specification {
         tester.lastMethod == "twoArgs"
         tester.lastArgs.size() == 2
         tester.lastArgs.first() == "1"
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
 
         when:
         tester.threeArgs("1", "2") { assert it == "subject" }
@@ -113,7 +116,7 @@ class AsmBackedClassGeneratorGroovyTest extends Specification {
         tester.lastArgs.size() == 3
         tester.lastArgs.first() == "1"
         tester.lastArgs[1] == "2"
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
 
         when:
         tester.overloaded("1") { assert it == "subject" }
@@ -122,7 +125,7 @@ class AsmBackedClassGeneratorGroovyTest extends Specification {
         tester.lastMethod == "overloaded"
         tester.lastArgs.size() == 2
         tester.lastArgs.first() == "1"
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
 
         when:
         tester.overloaded(1) { assert it == "subject" }
@@ -131,7 +134,7 @@ class AsmBackedClassGeneratorGroovyTest extends Specification {
         tester.lastMethod == "overloaded"
         tester.lastArgs.size() == 2
         tester.lastArgs.first() == 1
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
 
         when:
         def closure = { assert it == "subject" }
@@ -145,17 +148,17 @@ class AsmBackedClassGeneratorGroovyTest extends Specification {
 
         expect: // can return values
         tester.oneActionReturnsString({}) == "string"
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
         tester.twoArgsReturnsString("foo", {}) == "string"
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
         tester.oneActionReturnsInt({}) == 1
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
         tester.twoArgsReturnsInt("foo", {}) == 1
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
         tester.oneActionReturnsArray({}) == [] as Object[]
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
         tester.twoArgsReturnsArray("foo", {}) == [] as Object[]
-        tester.lastArgs.last() instanceof ClosureBackedAction
+        tester.lastArgs.last() instanceof Action
     }
 
     def "can coerce enum values"() {
@@ -354,6 +357,19 @@ class AsmBackedClassGeneratorGroovyTest extends Specification {
         then:
         0 * services._
     }
+
+    def "property missing implementation is invoked exactly once, with actual value"() {
+        given:
+        def thing = create(DynamicThing)
+        def values = []
+        thing.onPropertyMissingSet = { n, v -> values << v }
+
+        when:
+        thing.foo = "bar"
+
+        then:
+        values == ["bar"]
+    }
 }
 
 enum TestEnum {
@@ -387,20 +403,20 @@ class DynamicThing {
     def methods = [:]
     def props = [:]
 
-    Closure onMethodMissing = { name, args -> methods[name] = args.toList() }
-    Closure onPropertyMissingGet = { name -> props[name] }
-    Closure onPropertyMissingSet = { name, value -> props[name] = value }
+    BiFunction<Object, String, Object[]> onMethodMissing = { name, args -> methods[name] = args.toList(); null }
+    Function<String, Object> onPropertyMissingGet = { name -> props[name] }
+    BiAction<String, Object> onPropertyMissingSet = { name, value -> props[name] = value }
 
     def methodMissing(String name, args) {
-        onMethodMissing(name, args)
+        onMethodMissing.apply(name, args as Object[])
     }
 
     def propertyMissing(String name) {
-        onPropertyMissingGet(name)
+        onPropertyMissingGet.apply(name)
     }
 
     def propertyMissing(String name, value) {
-        onPropertyMissingSet(name, value)
+        onPropertyMissingSet.execute(name, value)
     }
 }
 

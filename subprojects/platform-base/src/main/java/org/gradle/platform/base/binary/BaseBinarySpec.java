@@ -19,141 +19,227 @@ package org.gradle.platform.base.binary;
 import org.gradle.api.Action;
 import org.gradle.api.DomainObjectSet;
 import org.gradle.api.Incubating;
-import org.gradle.api.PolymorphicDomainObjectContainer;
-import org.gradle.api.internal.AbstractBuildableModelElement;
+import org.gradle.api.Nullable;
+import org.gradle.api.artifacts.component.LibraryBinaryIdentifier;
+import org.gradle.api.internal.AbstractBuildableComponentSpec;
+import org.gradle.api.internal.DefaultDomainObjectSet;
+import org.gradle.api.internal.project.taskfactory.ITaskFactory;
+import org.gradle.internal.component.local.model.DefaultLibraryBinaryIdentifier;
+import org.gradle.internal.reflect.DirectInstantiator;
 import org.gradle.internal.reflect.Instantiator;
 import org.gradle.internal.reflect.ObjectInstantiationException;
-import org.gradle.language.base.FunctionalSourceSet;
 import org.gradle.language.base.LanguageSourceSet;
-import org.gradle.language.base.internal.LanguageSourceSetContainer;
+import org.gradle.model.ModelMap;
+import org.gradle.model.internal.core.*;
+import org.gradle.model.internal.type.ModelType;
+import org.gradle.platform.base.BinarySpec;
 import org.gradle.platform.base.BinaryTasksCollection;
+import org.gradle.platform.base.ComponentSpec;
 import org.gradle.platform.base.ModelInstantiationException;
-import org.gradle.platform.base.internal.BinaryBuildAbility;
-import org.gradle.platform.base.internal.BinarySpecInternal;
-import org.gradle.platform.base.internal.DefaultBinaryTasksCollection;
-import org.gradle.util.TreeVisitor;
+import org.gradle.platform.base.internal.*;
+
+import java.io.File;
+import java.util.Set;
 
 /**
- * Base class for custom binary implementations.
- * A custom implementation of {@link org.gradle.platform.base.BinarySpec} must extend this type.
- *
- * TODO at the moment leaking BinarySpecInternal here to generate lifecycleTask in
- * LanguageBasePlugin$createLifecycleTaskForBinary#createLifecycleTaskForBinary rule
- *
+ * Base class that may be used for custom {@link BinarySpec} implementations. However, it is generally better to use an
+ * interface annotated with {@link org.gradle.model.Managed} and not use an implementation class at all.
  */
 @Incubating
-public abstract class BaseBinarySpec extends AbstractBuildableModelElement implements BinarySpecInternal {
-    private final LanguageSourceSetContainer sourceSets = new LanguageSourceSetContainer();
+public class BaseBinarySpec extends AbstractBuildableComponentSpec implements BinarySpecInternal {
+    private static final ModelType<BinaryTasksCollection> BINARY_TASKS_COLLECTION = ModelType.of(BinaryTasksCollection.class);
+    private static final ModelType<LanguageSourceSet> LANGUAGE_SOURCE_SET_MODELTYPE = ModelType.of(LanguageSourceSet.class);
 
-    private static ThreadLocal<BinaryInfo> nextBinaryInfo = new ThreadLocal<BinaryInfo>();
-    private final BinaryTasksCollection tasks = new DefaultBinaryTasksCollection(this);
+    private static final ThreadLocal<BinaryInfo> NEXT_BINARY_INFO = new ThreadLocal<BinaryInfo>();
+    private final DomainObjectSet<LanguageSourceSet> inputSourceSets = new DefaultDomainObjectSet<LanguageSourceSet>(LanguageSourceSet.class);
+    private final BinaryTasksCollection tasks;
+    private final MutableModelNode componentNode;
+    private final MutableModelNode sources;
+    private final Class<? extends BinarySpec> publicType;
+    private BinaryNamingScheme namingScheme;
+    private boolean disabled;
 
-    private final String name;
-    private final String typeName;
-
-    private BinaryBuildAbility availability;
-
-    public static <T extends BaseBinarySpec> T create(Class<T> type, String name, Instantiator instantiator) {
-        if (type.equals(BaseBinarySpec.class)) {
-            throw new ModelInstantiationException("Cannot create instance of abstract class BaseBinarySpec.");
-        }
-        nextBinaryInfo.set(new BinaryInfo(name, type.getSimpleName()));
+    public static <T extends BaseBinarySpec> T create(Class<? extends BinarySpec> publicType, Class<T> implementationType,
+                                                      ComponentSpecIdentifier componentId, MutableModelNode modelNode, @Nullable MutableModelNode componentNode,
+                                                      Instantiator instantiator, ITaskFactory taskFactory) {
+        NEXT_BINARY_INFO.set(new BinaryInfo(componentId, publicType, modelNode, componentNode, taskFactory, instantiator));
         try {
             try {
-                return instantiator.newInstance(type);
+                return DirectInstantiator.INSTANCE.newInstance(implementationType);
             } catch (ObjectInstantiationException e) {
-                throw new ModelInstantiationException(String.format("Could not create binary of type %s", type.getSimpleName()), e.getCause());
+                throw new ModelInstantiationException(String.format("Could not create binary of type %s", publicType.getSimpleName()), e.getCause());
             }
         } finally {
-            nextBinaryInfo.set(null);
+            NEXT_BINARY_INFO.set(null);
         }
     }
 
-    protected BaseBinarySpec() {
-        this(nextBinaryInfo.get());
+    public BaseBinarySpec() {
+        this(NEXT_BINARY_INFO.get());
     }
 
     private BaseBinarySpec(BinaryInfo info) {
+        super(validate(info).componentId, info.publicType);
+        this.publicType = info.publicType;
+        this.componentNode = info.componentNode;
+        this.tasks = info.instantiator.newInstance(DefaultBinaryTasksCollection.class, this, info.taskFactory);
+
+        MutableModelNode modelNode = info.modelNode;
+        sources = ModelMaps.addModelMapNode(modelNode, LANGUAGE_SOURCE_SET_MODELTYPE, "sources");
+        ModelRegistration itemRegistration = ModelRegistrations.of(modelNode.getPath().child("tasks"))
+            .action(ModelActionRole.Create, new Action<MutableModelNode>() {
+                @Override
+                public void execute(MutableModelNode modelNode) {
+                    modelNode.setPrivateData(BINARY_TASKS_COLLECTION, tasks);
+                }
+            })
+            .withProjection(new UnmanagedModelProjection<BinaryTasksCollection>(BINARY_TASKS_COLLECTION))
+            .descriptor(modelNode.getDescriptor())
+            .build();
+        modelNode.addLink(itemRegistration);
+
+        namingScheme = DefaultBinaryNamingScheme
+            .component(parentComponentName())
+            .withBinaryName(getName())
+            .withBinaryType(getTypeName());
+    }
+
+    private static BinaryInfo validate(BinaryInfo info) {
         if (info == null) {
-            throw new ModelInstantiationException("Direct instantiation of a BaseBinarySpec is not permitted. Use a BinaryTypeBuilder instead.");
+            throw new ModelInstantiationException("Direct instantiation of a BaseBinarySpec is not permitted. Use a @ComponentType rule instead.");
         }
-        this.name = info.name;
-        this.typeName = info.typeName;
+        return info;
     }
 
-    protected String getTypeName() {
-        return typeName;
+    @Nullable
+    private String parentComponentName() {
+        ComponentSpec component = getComponent();
+        return component != null ? component.getName() : null;
     }
 
-    public String getDisplayName() {
-        return String.format("%s '%s'", getTypeName(), getName());
+    @Override
+    public LibraryBinaryIdentifier getId() {
+        // TODO: This can throw a NPE: will need an identifier for a variant without an owning component
+        ComponentSpec component = getComponent();
+        return new DefaultLibraryBinaryIdentifier(component.getProjectPath(), component.getName(), getName());
     }
 
-    public String getName() {
-        return name;
+    @Override
+    public Class<? extends BinarySpec> getPublicType() {
+        return publicType;
     }
 
-    public boolean isBuildable() {
+    @Override
+    @Nullable
+    public ComponentSpec getComponent() {
+        return getComponentAs(ComponentSpec.class);
+    }
+
+    @Nullable
+    protected <T extends ComponentSpec> T getComponentAs(Class<T> componentType) {
+        if (componentNode == null) {
+            return null;
+        }
+        ModelType<T> modelType = ModelType.of(componentType);
+        return componentNode.canBeViewedAs(modelType)
+            ? componentNode.asImmutable(modelType, componentNode.getDescriptor()).getInstance()
+            : null;
+    }
+
+    @Override
+    public String getProjectScopedName() {
+        return getIdentifier().getProjectScopedName();
+    }
+
+    @Override
+    public void setBuildable(boolean buildable) {
+        this.disabled = !buildable;
+    }
+
+    @Override
+    public final boolean isBuildable() {
         return getBuildAbility().isBuildable();
     }
 
-    public FunctionalSourceSet getBinarySources() {
-        return sourceSets.getMainSources();
+    @Override
+    public DomainObjectSet<LanguageSourceSet> getInputs() {
+        return inputSourceSets;
     }
 
-    public void setBinarySources(FunctionalSourceSet sources) {
-        sourceSets.setMainSources(sources);
+    @Override
+    public ModelMap<LanguageSourceSet> getSources() {
+        return ModelMaps.toView(sources, LANGUAGE_SOURCE_SET_MODELTYPE);
     }
 
-    public DomainObjectSet<LanguageSourceSet> getSource() {
-        return sourceSets.getSources();
-    }
-
-    public void sources(Action<? super PolymorphicDomainObjectContainer<LanguageSourceSet>> action) {
-        action.execute(sourceSets.getMainSources());
-    }
-
-    // TODO:DAZ Remove this
-    public void source(Object source) {
-        sourceSets.source(source);
-    }
-
+    @Override
     public BinaryTasksCollection getTasks() {
-       return tasks;
+        return tasks;
     }
 
+    @Override
     public boolean isLegacyBinary() {
         return false;
     }
 
-    private static class BinaryInfo {
-        final String name;
-        final String typeName;
+    @Override
+    public BinaryNamingScheme getNamingScheme() {
+        return namingScheme;
+    }
 
-        private BinaryInfo(String name, String typeName) {
-            this.name = name;
-            this.typeName = typeName;
+    @Override
+    public void setNamingScheme(BinaryNamingScheme namingScheme) {
+        this.namingScheme = namingScheme;
+    }
+
+    @Override
+    public boolean hasCodependentSources() {
+        return false;
+    }
+
+    private static class BinaryInfo {
+        private final Class<? extends BinarySpec> publicType;
+        private final MutableModelNode modelNode;
+        private final MutableModelNode componentNode;
+        private final ITaskFactory taskFactory;
+        private final Instantiator instantiator;
+        private final ComponentSpecIdentifier componentId;
+
+        private BinaryInfo(ComponentSpecIdentifier componentId, Class<? extends BinarySpec> publicType, MutableModelNode modelNode, MutableModelNode componentNode, ITaskFactory taskFactory, Instantiator instantiator) {
+            this.componentId = componentId;
+            this.publicType = publicType;
+            this.modelNode = modelNode;
+            this.componentNode = componentNode;
+            this.taskFactory = taskFactory;
+            this.instantiator = instantiator;
         }
     }
 
     @Override
-    public String toString() {
-        return getDisplayName();
+    public final BinaryBuildAbility getBuildAbility() {
+        if (disabled) {
+            return new FixedBuildAbility(false);
+        }
+        return getBinaryBuildAbility();
     }
 
-    @Override
-    public BinaryBuildAbility getBuildAbility() {
+    protected BinaryBuildAbility getBinaryBuildAbility() {
         // Default behavior is to always be buildable.  Binary implementations should define what
         // criteria make them buildable or not.
-        return new BinaryBuildAbility() {
-            @Override
-            public boolean isBuildable() {
-                return true;
-            }
-
-            @Override
-            public void explain(TreeVisitor<? super String> visitor) {
-            }
-        };
+        return new FixedBuildAbility(true);
     }
+
+    public static void replaceSingleDirectory(Set<File> dirs, File dir) {
+        switch (dirs.size()) {
+            case 0:
+                dirs.add(dir);
+                break;
+            case 1:
+                dirs.clear();
+                dirs.add(dir);
+                break;
+            default:
+                throw new IllegalStateException("Can't replace multiple directories.");
+        }
+    }
+
 }

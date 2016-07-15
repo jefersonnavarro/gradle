@@ -18,6 +18,7 @@ package org.gradle.performance
 
 import org.gradle.performance.fixture.CrossBuildPerformanceResults
 import org.gradle.performance.fixture.CrossVersionPerformanceResults
+import org.gradle.performance.fixture.GradleVsMavenBuildPerformanceResults
 import org.gradle.performance.measure.Amount
 import org.gradle.performance.measure.DataAmount
 import org.gradle.performance.measure.Duration
@@ -28,13 +29,17 @@ abstract class ResultSpecification extends Specification {
     CrossVersionPerformanceResults crossVersionResults(Map<String, ?> options = [:]) {
         def results = new CrossVersionPerformanceResults()
         results.testId = "test-id"
+        results.previousTestIds = []
         results.testProject = "test-project"
         results.tasks = ["clean", "build"]
         results.args = []
+        results.gradleOpts = []
+        results.daemon = false
         results.operatingSystem = "some os"
         results.jvm = "java 6"
         results.versionUnderTest = "1.7-rc-1"
         results.vcsBranch = "master"
+        results.vcsCommits = ['123456']
         options.each { key, value -> results."$key" = value }
         return results
     }
@@ -42,12 +47,28 @@ abstract class ResultSpecification extends Specification {
     CrossBuildPerformanceResults crossBuildResults(Map<String, ?> options = [:]) {
         def results = new CrossBuildPerformanceResults(
                 testId: "test-id",
+                testGroup: "test-group",
                 jvm: "java 7",
                 versionUnderTest: "Gradle 1.0",
                 operatingSystem: "windows",
                 testTime: 100,
                 vcsBranch: "master",
-                vcsCommit: "abcdef"
+                vcsCommits: ["abcdef"]
+        )
+        options.each { key, value -> results."$key" = value }
+        return results
+    }
+
+    GradleVsMavenBuildPerformanceResults gradleVsMavenBuildResults(Map<String, ?> options = [:]) {
+        def results = new GradleVsMavenBuildPerformanceResults(
+                testId: "test-id",
+                testGroup: "test-group",
+                jvm: "java 7",
+                versionUnderTest: "Gradle 1.0",
+                operatingSystem: "windows",
+                testTime: 100,
+                vcsBranch: "master",
+                vcsCommits: ["abcdef"]
         )
         options.each { key, value -> results."$key" = value }
         return results
@@ -55,7 +76,9 @@ abstract class ResultSpecification extends Specification {
 
     MeasuredOperation operation(Map<String, Object> args = [:]) {
         def operation = new MeasuredOperation()
-        operation.executionTime = args.executionTime instanceof Amount ? args.executionTime : Duration.millis(args?.executionTime ?: 120)
+        operation.totalTime = args.totalTime instanceof Amount ? args.totalTime : Duration.millis(args?.totalTime ?: 120)
+        operation.configurationTime = args.configurationTime instanceof Amount ? args.configurationTime : Duration.millis(args.configurationTime ?: 30);
+        operation.executionTime = args.executionTime instanceof Amount ? args.executionTime : Duration.millis(args.configurationTime ?: 80);
         operation.totalMemoryUsed = args.totalMemoryUsed instanceof Amount ? args.totalMemoryUsed : DataAmount.bytes(args?.totalMemoryUsed ?: 1024)
         operation.totalHeapUsage = args.totalHeapUsage instanceof Amount ? args.totalHeapUsage : DataAmount.bytes(args?.totalHeapUsage ?: 4096)
         operation.maxHeapUsage = args.maxHeapUsage instanceof Amount ? args.maxHeapUsage : DataAmount.bytes(args?.maxHeapUsage ?: 2000)

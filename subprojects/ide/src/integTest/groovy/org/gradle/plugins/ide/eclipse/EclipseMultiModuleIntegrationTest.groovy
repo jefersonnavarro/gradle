@@ -43,11 +43,13 @@ class EclipseMultiModuleIntegrationTest extends AbstractIdeIntegrationTest {
 
         def settingsFile = file("master/settings.gradle")
         settingsFile << """
+rootProject.name = 'root'
 include 'api'
 include 'shared:api', 'shared:model'
 include 'services:utilities'
 include 'util'
 include 'contrib:services:util'
+
         """
 
         def buildFile = file("master/build.gradle")
@@ -91,7 +93,7 @@ project(':services:utilities') {
         List deps = parseEclipseProjectDependencies(project: 'master/services/utilities')
 
         assert deps.contains("/very-cool-model")
-        assert deps.contains("/util")
+        assert deps.contains("/root-util")
         assert deps.contains("/shared-api")
         assert deps.contains("/contrib-services-util")
     }
@@ -142,6 +144,38 @@ project(':api') {
 
         assert deps.contains("/master-shared-model")
         assert deps.contains("/nonEclipse")
+    }
+
+    @Test
+    void shouldCreateCorrectClasspathEvenIfUserReconfiguresTheProjectNameAndRootProjectDoesNotApplyEclipsePlugin() {
+        def settingsFile = file("master/settings.gradle") << "include 'api', 'shared:model'"
+
+        def buildFile = file("master/build.gradle") << """
+subprojects {
+    apply plugin: 'java'
+    apply plugin: 'eclipse'
+
+    eclipse {
+        project {
+            name = rootProject.name + path.replace(':', '-')
+        }
+    }
+}
+
+project(':api') {
+    dependencies {
+        compile project(':shared:model')
+    }
+}
+"""
+
+        //when
+        executer.usingBuildScript(buildFile).usingSettingsFile(settingsFile).withTasks("eclipse").run()
+
+        //then
+        def deps = parseEclipseProjectDependencies(project: 'master/api')
+
+        assert deps.contains("/master-shared-model")
     }
 
     List parseEclipseProjectDependencies(def options) {

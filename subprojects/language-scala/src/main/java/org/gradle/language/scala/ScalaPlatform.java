@@ -16,13 +16,18 @@
 
 package org.gradle.language.scala;
 
+import org.gradle.api.Incubating;
+import org.gradle.api.tasks.Input;
 import org.gradle.platform.base.Platform;
 
 /**
  * Defines and configures a Scala Platform.
  */
+@Incubating
 public interface ScalaPlatform extends Platform {
+    @Input
     String getScalaVersion();
 
+    @Input
     String getScalaCompatibilityVersion();
 }

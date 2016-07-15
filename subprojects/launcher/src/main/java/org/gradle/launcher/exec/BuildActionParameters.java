@@ -16,14 +16,12 @@
 package org.gradle.launcher.exec;
 
 import org.gradle.api.logging.LogLevel;
-import org.gradle.initialization.BuildRequestMetaData;
+import org.gradle.internal.classpath.ClassPath;
 
 import java.io.File;
 import java.util.Map;
 
 public interface BuildActionParameters {
-    BuildRequestMetaData getBuildRequestMetaData();
-
     Map<String, String> getSystemProperties();
 
     Map<String, String> getEnvVariables();
@@ -31,4 +29,12 @@ public interface BuildActionParameters {
     File getCurrentDir();
 
     LogLevel getLogLevel();
+
+    boolean isUseDaemon();
+
+    boolean isContinuous();
+
+    boolean isInteractive();
+
+    ClassPath getInjectedPluginClasspath();
 }

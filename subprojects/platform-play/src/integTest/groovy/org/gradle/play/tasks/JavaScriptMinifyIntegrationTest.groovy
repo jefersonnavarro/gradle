@@ -16,12 +16,23 @@
 
 package org.gradle.play.tasks
 
+import org.gradle.test.fixtures.file.TestFile
 import org.hamcrest.Matchers
+import static org.gradle.play.integtest.fixtures.Repositories.*
 
 class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegrationTest {
-    @Override
-    String getDefaultSourceSet() {
-        return "JavaScriptAssets"
+
+    TestFile getProcessedJavaScriptDir(String sourceSet) {
+        file("build/src/play/binary/minifyPlayBinaryPlay${sourceSet != null ? sourceSet.capitalize() : "JavaScript"}")
+    }
+
+    void hasProcessedJavaScript(String fileName) {
+        hasProcessedJavaScript(null, fileName)
+    }
+
+    void hasProcessedJavaScript(String sourceSet, String fileName) {
+        hasExpectedJavaScript(processedJavaScript(sourceSet, "${fileName}.js" ))
+        hasMinifiedJavaScript(processedJavaScript(sourceSet, "${fileName}.min.js" ))
     }
 
     def setup() {
@@ -31,39 +42,8 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
                 id 'play-javascript'
             }
 
-            repositories{
-                jcenter()
-                maven{
-                    name = "typesafe-maven-release"
-                    url = "https://repo.typesafe.com/typesafe/maven-releases"
-                }
-            }
+            ${PLAY_REPOSITORIES}
         """
-    }
-
-    def "non-play task minifies javascript files" () {
-        buildFile << """
-            model {
-                tasks {
-                    create('minifyJavaScript', JavaScriptMinify) {
-                        source = fileTree("js")
-                        destinationDir = new File(buildDir, "min")
-                        playPlatform = binaries.playBinary.targetPlatform
-                    }
-                }
-            }
-        """
-        withJavaScriptSource("js/test.js")
-        withJavaScriptSource("js/x/y/z.js")
-
-        when:
-        succeeds "minifyJavaScript"
-
-        then:
-        matchesExpected file("build/min/test.min.js")
-        matchesExpected file("build/min/x/y/z.min.js")
-        matchesExpectedRaw file("build/min/test.js")
-        matchesExpectedRaw file("build/min/x/y/z.js")
     }
 
     def "minifies default javascript source set as part of play application build"() {
@@ -75,19 +55,17 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
 
         then:
         executedAndNotSkipped(
-                ":minifyPlayBinaryJavaScriptAssets",
+                ":minifyPlayBinaryPlayJavaScript",
                 ":createPlayBinaryJar",
                 ":createPlayBinaryAssetsJar",
                 ":playBinary")
-        minified("test.min.js").exists()
-        copied("test.js").exists()
         assetsJar.containsDescendants(
                 "public/test.min.js",
                 "public/test.js"
         )
 
         and:
-        matchesExpected("test.min.js")
+        hasProcessedJavaScript("test")
     }
 
     def "does not re-minify when inputs and outputs are unchanged"() {
@@ -99,7 +77,7 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
         succeeds "assemble"
 
         then:
-        skipped(":minifyPlayBinaryJavaScriptAssets",
+        skipped(":minifyPlayBinaryPlayJavaScript",
                 ":createPlayBinaryJar",
                 ":createPlayBinaryAssetsJar",
                 ":playBinary")
@@ -112,16 +90,16 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
 
         // Detects missing output
         when:
-        minified("test.min.js").delete()
+        processedJavaScript("test.min.js").delete()
         assetsJar.file.delete()
         succeeds "assemble"
 
         then:
         executedAndNotSkipped(
-                ":minifyPlayBinaryJavaScriptAssets",
+                ":minifyPlayBinaryPlayJavaScript",
                 ":createPlayBinaryAssetsJar",
                 ":playBinary")
-        minified("test.min.js").exists()
+        hasProcessedJavaScript("test")
     }
 
     def "re-minifies when an input is changed" () {
@@ -136,7 +114,7 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
 
         then:
         executedAndNotSkipped(
-                ":minifyPlayBinaryJavaScriptAssets",
+                ":minifyPlayBinaryPlayJavaScript",
                 ":createPlayBinaryAssetsJar",
                 ":playBinary")
     }
@@ -150,10 +128,8 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
         succeeds "assemble"
 
         then:
-        minified("test1.min.js").exists()
-        minified("test2.min.js").exists()
-        copied("test1.js").exists()
-        copied("test2.js").exists()
+        hasProcessedJavaScript("test1")
+        hasProcessedJavaScript("test2")
         assetsJar.containsDescendants(
                 "public/test1.min.js",
                 "public/test2.min.js",
@@ -166,8 +142,8 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
         succeeds "assemble"
 
         then:
-        ! minified("test2.min.js").exists()
-        ! copied("test2.js").exists()
+        ! processedJavaScript("test2.min.js").exists()
+        ! processedJavaScript("test2.js").exists()
         assetsJar.countFiles("public/test2.min.js") == 0
         assetsJar.countFiles("public/test2.js") == 0
     }
@@ -198,18 +174,15 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
 
         then:
         executedAndNotSkipped(
-                ":minifyPlayBinaryJavaScriptAssets",
-                ":minifyPlayBinaryExtraJavaScript",
-                ":minifyPlayBinaryAnotherJavaScript",
+                ":minifyPlayBinaryPlayJavaScript",
+                ":minifyPlayBinaryPlayExtraJavaScript",
+                ":minifyPlayBinaryPlayAnotherJavaScript",
                 ":createPlayBinaryJar",
                 ":createPlayBinaryAssetsJar",
                 ":playBinary")
-        matchesExpected("test1.min.js")
-        matchesExpected("ExtraJavaScript", "javascripts/test2.min.js")
-        matchesExpected("AnotherJavaScript", "a/b/c/test3.min.js")
-        matchesExpectedRaw(minified("test1.js"))
-        matchesExpectedRaw(minified("ExtraJavaScript", "javascripts/test2.js"))
-        matchesExpectedRaw(minified("AnotherJavaScript", "a/b/c/test3.js"))
+        hasProcessedJavaScript("test1")
+        hasProcessedJavaScript("ExtraJavaScript", "javascripts/test2")
+        hasProcessedJavaScript("AnotherJavaScript", "a/b/c/test3")
         assetsJar.containsDescendants(
                 "public/test1.min.js",
                 "public/javascripts/test2.min.js",
@@ -223,9 +196,9 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
         succeeds "assemble"
 
         then:
-        skipped(":minifyPlayBinaryJavaScriptAssets",
-                ":minifyPlayBinaryExtraJavaScript",
-                ":minifyPlayBinaryAnotherJavaScript",
+        skipped(":minifyPlayBinaryPlayJavaScript",
+                ":minifyPlayBinaryPlayExtraJavaScript",
+                ":minifyPlayBinaryPlayAnotherJavaScript",
                 ":createPlayBinaryJar",
                 ":createPlayBinaryAssetsJar",
                 ":playBinary")
@@ -241,9 +214,8 @@ class JavaScriptMinifyIntegrationTest extends AbstractJavaScriptMinifyIntegratio
         fails "assemble"
 
         then:
-        minified("javascripts/hello.min.js").exists()
-        copied("javascripts/hello.js").exists()
-        failure.assertHasDescription("Execution failed for task ':minifyPlayBinaryJavaScriptAssets'.")
+        hasProcessedJavaScript("javascripts/hello")
+        failure.assertHasDescription("Execution failed for task ':minifyPlayBinaryPlayJavaScript'.")
 
         String slash = File.separator
         failure.assertThatCause(Matchers.allOf([

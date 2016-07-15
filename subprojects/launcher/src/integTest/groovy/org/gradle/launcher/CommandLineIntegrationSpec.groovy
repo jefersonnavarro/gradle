@@ -17,20 +17,62 @@
 package org.gradle.launcher
 
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.AvailableJavaHomes
-import org.gradle.util.GradleVersion
+import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
+import org.gradle.launcher.debug.JDWPUtil
+import org.gradle.test.fixtures.ConcurrentTestUtil
+import org.junit.Rule
 import spock.lang.IgnoreIf
+import spock.lang.Unroll
 
 class CommandLineIntegrationSpec extends AbstractIntegrationSpec {
-    @IgnoreIf({ AvailableJavaHomes.java5 == null })
-    def "provides reasonable failure message when attempting to run under java 5"() {
-        def jdk = AvailableJavaHomes.java5
+    @Rule JDWPUtil jdwpClient = new JDWPUtil(5005)
 
+    @IgnoreIf({ GradleContextualExecuter.parallel })
+    @Unroll
+    def "reasonable failure message when --max-workers=#value"() {
         given:
-        executer.withJavaHome(jdk.javaHome)
+        requireGradleDistribution() // otherwise exception gets thrown in testing infrastructure
 
-        expect:
-        fails("help")
-        failure.assertHasDescription("Gradle ${GradleVersion.current().version} requires Java 6 or later to run. You are currently using Java 5.")
+        when:
+        args("--max-workers=$value")
+
+        then:
+        fails "help"
+
+        and:
+        errorOutput.trim().readLines()[0] == "Argument value '$value' given for --max-workers option is invalid (must be a positive, non-zero, integer)"
+
+        where:
+        value << ["-1", "0", "foo", " 1"]
+    }
+
+    @Unroll
+    def "reasonable failure message when org.gradle.workers.max=#value"() {
+        given:
+        requireGradleDistribution() // otherwise exception gets thrown in testing infrastructure
+
+        when:
+        args("-Dorg.gradle.workers.max=$value")
+
+        then:
+        fails "help"
+
+        and:
+        failure.assertHasDescription "Value '$value' given for org.gradle.workers.max system property is invalid (must be a positive, non-zero, integer)"
+
+        where:
+        value << ["-1", "0", "foo", " 1"]
+    }
+
+    def "can debug with org.gradle.debug=true"() {
+        when:
+        def gradle = executer.withArgument("-Dorg.gradle.debug=true").withTasks("help").start()
+
+        then:
+        ConcurrentTestUtil.poll() {
+            // Connect, resume threads, and disconnect from VM
+            jdwpClient.connect().dispose()
+        }
+        gradle.waitForFinish()
     }
 }

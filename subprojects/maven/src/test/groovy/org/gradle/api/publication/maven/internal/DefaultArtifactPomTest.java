@@ -25,6 +25,8 @@ import org.gradle.api.artifacts.maven.Conf2ScopeMappingContainer;
 import org.gradle.api.artifacts.maven.MavenPom;
 import org.gradle.api.internal.artifacts.ivyservice.IvyUtil;
 import org.gradle.api.internal.file.FileResolver;
+import org.gradle.api.publication.maven.internal.pom.DefaultMavenPom;
+import org.gradle.api.publication.maven.internal.pom.PomDependenciesConverter;
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider;
 import org.jmock.Expectations;
 import org.jmock.Mockery;
@@ -158,7 +160,7 @@ public class DefaultArtifactPomTest {
         assertThat(artifactPom.getPom().getVersion(), equalTo("1.0"));
         assertThat(artifactPom.getPom().getPackaging(), equalTo("mainPackaging"));
     }
-    
+
     @Test(expected = InvalidUserDataException.class)
     public void addClassifierTwiceShouldThrowInvalidUserDataEx() {
         File classifierFile = new File("someClassifierFile");
@@ -248,7 +250,7 @@ public class DefaultArtifactPomTest {
         context.checking(new Expectations() {{
             allowing(mavenPomMock).getArtifactId();
             will(returnValue("artifactId"));
-            one(mavenPomMock).writeTo(with(any(FileOutputStream.class)));
+            oneOf(mavenPomMock).writeTo(with(any(FileOutputStream.class)));
         }});
 
         PublishArtifact artifact = artifactPom.writePom(somePomFile);

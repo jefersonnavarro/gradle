@@ -15,101 +15,110 @@
  */
 
 package org.gradle.integtests.resolve.http
-
 import org.gradle.integtests.fixtures.AbstractHttpDependencyResolutionTest
 import org.gradle.integtests.fixtures.TestResources
+import org.gradle.test.fixtures.keystore.TestKeyStore
+import org.gradle.test.fixtures.server.http.HttpServer
 import org.junit.Rule
+import spock.lang.Unroll
 
 import static org.gradle.util.Matchers.containsText
 
 abstract class AbstractHttpsRepoResolveIntegrationTest extends AbstractHttpDependencyResolutionTest {
     @Rule TestResources resources = new TestResources(temporaryFolder)
-    File clientStore // contains the client's public and private keys
-    File serverStore // contains the server's public and private keys
+    TestKeyStore keyStore
 
-    abstract protected String setupRepo()
+    abstract protected String setupRepo(boolean useAuth)
 
-    def "resolve with server certificate"() {
-        setupCertStores()
-        server.enableSsl(serverStore.path, "asdfgh")
+    @Unroll
+    def "resolve with server certificate and #authSchemeName authentication"() {
+        keyStore = TestKeyStore.init(resources.dir)
+        keyStore.enableSslWithServerCert(server)
+        server.authenticationScheme = authScheme
 
-        def repoType = setupRepo()
-        setupBuildFile(repoType)
+        def repoType = setupRepo(useAuth)
+        setupBuildFile(repoType, useAuth)
 
         when:
-        executer.withArgument("-Djavax.net.ssl.trustStore=$serverStore.path")
-                .withArgument("-Djavax.net.ssl.trustStorePassword=asdfgh")
-                .withTasks('libs').run()
+        keyStore.configureServerCert(executer)
+        succeeds "libs"
 
         then:
         file('libs').assertHasDescendants('my-module-1.0.jar')
+        and:
+        server.authenticationAttempts.asList() == authenticationAttempts
+
+        where:
+        useAuth | authScheme                   | authSchemeName | authenticationAttempts
+        false   | null                         | 'no'           | ['None']
+        true    | HttpServer.AuthScheme.BASIC  | 'basic'        | ['None', 'Basic']
+        true    | HttpServer.AuthScheme.DIGEST | 'digest'       | ['None', 'Digest']
+        true    | HttpServer.AuthScheme.NTLM   | 'ntlm'         | ['None', 'NTLM']
     }
 
     def "resolve with server and client certificate"() {
-        setupCertStores()
-        server.enableSsl(serverStore.path, "asdfgh", clientStore.path, "asdfgh")
+        keyStore = TestKeyStore.init(resources.dir)
+        keyStore.enableSslWithServerAndClientCerts(server)
 
         def repoType = setupRepo()
         setupBuildFile(repoType)
 
         when:
-        executer.withArgument("-Djavax.net.ssl.trustStore=$serverStore.path")
-                .withArgument("-Djavax.net.ssl.trustStorePassword=asdfgh")
-                .withArgument("-Djavax.net.ssl.keyStore=$clientStore.path")
-                .withArgument("-Djavax.net.ssl.keyStorePassword=asdfgh")
-                .withTasks('libs').run()
+        keyStore.configureServerAndClientCerts(executer)
+        succeeds "libs"
 
         then:
         file('libs').assertHasDescendants('my-module-1.0.jar')
     }
 
     def "decent error message when client can't authenticate server"() {
-        setupCertStores()
-        server.enableSsl(serverStore.path, "asdfgh")
+        keyStore = TestKeyStore.init(resources.dir)
+        keyStore.enableSslWithServerCert(server)
 
         def repoType = setupRepo()
         setupBuildFile(repoType)
 
         when:
-        def failure = executer.withStackTraceChecksDisabled() // Jetty logs stuff to console
-                .withArgument("-Djavax.net.ssl.trustStore=$clientStore.path") // intentionally use wrong trust store for client
-                .withArgument("-Djavax.net.ssl.trustStorePassword=asdfgh")
-                .withTasks('libs').runWithFailure()
+        executer.withStackTraceChecksDisabled() // Jetty logs stuff to console
+        keyStore.configureIncorrectServerCert(executer)
+        fails "libs"
 
         then:
-        failure.assertThatCause(containsText("Could not GET 'https://localhost:(\\d*)/repo1/my-group/my-module/1.0/"))
-        failure.assertHasCause("peer not authenticated")
+        failure.assertThatCause(containsText("Could not GET '${server.uri}/repo1/my-group/my-module/1.0/"))
+        failure.error.contains("javax.net.ssl.SSLHandshakeException")
     }
 
-    def "decent error message when server can't authenticate client"() {
-        setupCertStores()
-        server.enableSsl(serverStore.path, "asdfgh", serverStore.path, "asdfgh") // intentionally use wrong trust store for server
+    def "build fails when server can't authenticate client"() {
+        keyStore = TestKeyStore.init(resources.dir)
+        keyStore.enableSslWithServerAndBadClientCert(server)
 
         def repoType = setupRepo()
         setupBuildFile(repoType)
 
         when:
-        def failure = executer.withStackTraceChecksDisabled() // Jetty logs stuff to console
-                .withArgument("-Djavax.net.ssl.trustStore=$serverStore.path")
-                .withArgument("-Djavax.net.ssl.trustStorePassword=asdfgh")
-                .withArgument("-Djavax.net.ssl.keyStore=$clientStore.path")
-                .withArgument("-Djavax.net.ssl.keyStorePassword=asdfgh")
-                .withTasks('libs').runWithFailure()
+        executer.withStackTraceChecksDisabled() // Jetty logs stuff to console
+        keyStore.configureServerAndClientCerts(executer)
+        fails "libs"
 
         then:
-        failure.assertThatCause(containsText("Could not GET 'https://localhost:(\\d*)/repo1/my-group/my-module/1.0/"))
-        failure.assertHasCause("peer not authenticated")
+        failure.assertThatCause(containsText("Could not GET '${server.uri}/repo1/my-group/my-module/1.0/"))
+        failure.error.contains("at org.apache.http.conn.ssl.SSLConnectionSocketFactory.createLayeredSocket")
     }
 
-    def setupCertStores() {
-        clientStore = resources.dir.file("clientStore")
-        serverStore = resources.dir.file("serverStore")
-    }
+    private void setupBuildFile(String repoType, boolean withCredentials = false) {
+        def credentials = """
+credentials {
+    username 'user'
+    password 'secret'
+}
+"""
 
-    private void setupBuildFile(String repoType) {
         buildFile << """
 repositories {
-    $repoType { url 'https://localhost:${server.sslPort}/repo1' }
+    $repoType {
+        url '${server.uri}/repo1'
+        ${withCredentials ? credentials : ''}
+    }
 }
 configurations { compile }
 dependencies {

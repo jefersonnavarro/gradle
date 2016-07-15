@@ -16,30 +16,65 @@
 package org.gradle.tooling.internal.provider;
 
 import org.gradle.api.BuildCancelledException;
-import org.gradle.configuration.GradleLauncherMetaData;
-import org.gradle.initialization.BuildAction;
-import org.gradle.initialization.BuildCancellationToken;
+import org.gradle.initialization.BuildRequestContext;
+import org.gradle.initialization.ReportedException;
 import org.gradle.internal.SystemProperties;
+import org.gradle.internal.classpath.ClassPath;
+import org.gradle.internal.classpath.DefaultClassPath;
+import org.gradle.internal.composite.CompositeParameters;
+import org.gradle.internal.composite.DefaultGradleParticipantBuild;
+import org.gradle.internal.composite.GradleParticipantBuild;
+import org.gradle.internal.invocation.BuildAction;
+import org.gradle.internal.service.ServiceRegistry;
 import org.gradle.launcher.daemon.configuration.DaemonParameters;
-import org.gradle.launcher.exec.*;
+import org.gradle.launcher.exec.BuildActionExecuter;
+import org.gradle.launcher.exec.BuildActionParameters;
+import org.gradle.launcher.exec.DefaultBuildActionParameters;
+import org.gradle.launcher.exec.DefaultCompositeBuildActionParameters;
+import org.gradle.tooling.UnsupportedVersionException;
 import org.gradle.tooling.internal.protocol.BuildExceptionVersion1;
 import org.gradle.tooling.internal.protocol.InternalBuildCancelledException;
+import org.gradle.tooling.internal.protocol.InternalCancellationToken;
+import org.gradle.tooling.internal.protocol.ModelIdentifier;
 import org.gradle.tooling.internal.provider.connection.ProviderOperationParameters;
+
+import java.io.File;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 public class DaemonBuildActionExecuter implements BuildActionExecuter<ProviderOperationParameters> {
     private final BuildActionExecuter<BuildActionParameters> executer;
-    private final DaemonParameters parameters;
+    private final DaemonParameters daemonParameters;
 
-    public DaemonBuildActionExecuter(BuildActionExecuter<BuildActionParameters> executer, DaemonParameters parameters) {
+    public DaemonBuildActionExecuter(BuildActionExecuter<BuildActionParameters> executer, DaemonParameters daemonParameters) {
         this.executer = executer;
-        this.parameters = parameters;
+        this.daemonParameters = daemonParameters;
     }
 
-    public <T> T execute(BuildAction<T> action, BuildCancellationToken cancellationToken, ProviderOperationParameters actionParameters) {
-        BuildActionParameters parameters = new DefaultBuildActionParameters(new GradleLauncherMetaData(), actionParameters.getStartTime(),
-                this.parameters.getEffectiveSystemProperties(), System.getenv(), SystemProperties.getCurrentDir(), actionParameters.getBuildLogLevel());
+    public Object execute(BuildAction action, BuildRequestContext buildRequestContext, ProviderOperationParameters parameters, ServiceRegistry contextServices) {
+        boolean continuous = action.getStartParameter() != null && action.getStartParameter().isContinuous() && isNotBuildingModel(action);
+        if (continuous && !doesConsumerSupportCancellation(buildRequestContext)) {
+            throw new UnsupportedVersionException("Continuous build requires Tooling API client version 2.1 or later.");
+        }
+        ClassPath classPath = DefaultClassPath.of(parameters.getInjectedPluginClasspath(Collections.<File>emptyList()));
+
+        BuildActionParameters actionParameters;
+        List<GradleParticipantBuild> compositeParticipants = parameters.getBuilds(null);
+        if (compositeParticipants != null) {
+            List<GradleParticipantBuild> clonedCompositeParticipants = new ArrayList<GradleParticipantBuild>();
+            for (GradleParticipantBuild build : compositeParticipants) {
+                clonedCompositeParticipants.add(new DefaultGradleParticipantBuild(build));
+            }
+            CompositeParameters compositeParameters = new CompositeParameters(clonedCompositeParticipants);
+            actionParameters = new DefaultCompositeBuildActionParameters(daemonParameters.getEffectiveSystemProperties(),
+                System.getenv(), SystemProperties.getInstance().getCurrentDir(), parameters.getBuildLogLevel(), daemonParameters.isEnabled(), continuous, false, classPath, compositeParameters);
+        } else {
+            actionParameters = new DefaultBuildActionParameters(daemonParameters.getEffectiveSystemProperties(),
+                System.getenv(), SystemProperties.getInstance().getCurrentDir(), parameters.getBuildLogLevel(), daemonParameters.isEnabled(), continuous, false, classPath);
+        }
         try {
-            return executer.execute(action, cancellationToken, parameters);
+            return executer.execute(action, buildRequestContext, actionParameters, contextServices);
         } catch (ReportedException e) {
             Throwable t = e.getCause();
             while (t != null) {
@@ -51,4 +86,18 @@ public class DaemonBuildActionExecuter implements BuildActionExecuter<ProviderOp
             throw new BuildExceptionVersion1(e.getCause());
         }
     }
+
+    protected boolean doesConsumerSupportCancellation(BuildRequestContext buildRequestContext) {
+        // cancellation token will be instanceof InternalCancellationToken when consumer supports cancellation
+        return buildRequestContext.getCancellationToken() instanceof InternalCancellationToken;
+    }
+
+    private boolean isNotBuildingModel(BuildAction action) {
+        if (!(action instanceof BuildModelAction)) {
+            return true;
+        }
+        String modelName = ((BuildModelAction) action).getModelName();
+        return modelName.equals(ModelIdentifier.NULL_MODEL);
+    }
+
 }

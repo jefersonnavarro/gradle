@@ -9,14 +9,16 @@
       <excludeFolder url="file://$MODULE_DIR$/build"/>
     </content>
     <orderEntry type="sourceFolder" forTests="false"/>
-    <orderEntry type="module-library" exported="" scope="RUNTIME">
+    <orderEntry type="module-library" scope="RUNTIME">
       <library>
         <CLASSES>
-          <root url="jar://@CACHE_DIR@/commons-collections/commons-collections/3.2/@SHA1@/commons-collections-3.2.jar!/"/>
+          <root url="jar://@CACHE_DIR@/commons-collections/commons-collections/3.2.2/@SHA1@/commons-collections-3.2.2.jar!/"/>
         </CLASSES>
-        <JAVADOC/>
+        <JAVADOC>
+          <root url="jar://@CACHE_DIR@/commons-collections/commons-collections/3.2.2/@SHA1@/commons-collections-3.2.2-javadoc.jar!/"/>
+        </JAVADOC>
         <SOURCES>
-          <root url="jar://@CACHE_DIR@/commons-collections/commons-collections/3.2/@SHA1@/commons-collections-3.2-sources.jar!/"/>
+          <root url="jar://@CACHE_DIR@/commons-collections/commons-collections/3.2.2/@SHA1@/commons-collections-3.2.2-sources.jar!/"/>
         </SOURCES>
       </library>
     </orderEntry>

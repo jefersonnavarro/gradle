@@ -21,7 +21,7 @@ import org.gradle.api.internal.component.ArtifactType;
 import org.gradle.internal.resolve.result.BuildableArtifactResolveResult;
 import org.gradle.internal.resolve.result.BuildableArtifactSetResolveResult;
 import org.gradle.internal.resolve.result.BuildableModuleComponentMetaDataResolveResult;
-import org.gradle.internal.resolve.result.BuildableModuleComponentVersionSelectionResolveResult;
+import org.gradle.internal.resolve.result.BuildableModuleVersionListingResolveResult;
 
 public class BaseModuleComponentRepositoryAccess implements ModuleComponentRepositoryAccess {
     private final ModuleComponentRepositoryAccess delegate;
@@ -30,23 +30,27 @@ public class BaseModuleComponentRepositoryAccess implements ModuleComponentRepos
         this.delegate = delegate;
     }
 
-    public void listModuleVersions(DependencyMetaData dependency, BuildableModuleComponentVersionSelectionResolveResult result) {
+    public ModuleComponentRepositoryAccess getDelegate() {
+        return delegate;
+    }
+
+    public void listModuleVersions(DependencyMetadata dependency, BuildableModuleVersionListingResolveResult result) {
         delegate.listModuleVersions(dependency, result);
     }
 
-    public void resolveComponentMetaData(DependencyMetaData dependency, ModuleComponentIdentifier moduleComponentIdentifier, BuildableModuleComponentMetaDataResolveResult result) {
-        delegate.resolveComponentMetaData(dependency, moduleComponentIdentifier, result);
+    public void resolveComponentMetaData(ModuleComponentIdentifier moduleComponentIdentifier, ComponentOverrideMetadata requestMetaData, BuildableModuleComponentMetaDataResolveResult result) {
+        delegate.resolveComponentMetaData(moduleComponentIdentifier, requestMetaData, result);
     }
 
-    public void resolveModuleArtifacts(ComponentResolveMetaData component, ArtifactType artifactType, BuildableArtifactSetResolveResult result) {
+    public void resolveModuleArtifacts(ComponentResolveMetadata component, ArtifactType artifactType, BuildableArtifactSetResolveResult result) {
         delegate.resolveModuleArtifacts(component, artifactType, result);
     }
 
-    public void resolveModuleArtifacts(ComponentResolveMetaData component, ComponentUsage componentUsage, BuildableArtifactSetResolveResult result) {
+    public void resolveModuleArtifacts(ComponentResolveMetadata component, ComponentUsage componentUsage, BuildableArtifactSetResolveResult result) {
         delegate.resolveModuleArtifacts(component, componentUsage, result);
     }
 
-    public void resolveArtifact(ComponentArtifactMetaData artifact, ModuleSource moduleSource, BuildableArtifactResolveResult result) {
+    public void resolveArtifact(ComponentArtifactMetadata artifact, ModuleSource moduleSource, BuildableArtifactResolveResult result) {
         delegate.resolveArtifact(artifact, moduleSource, result);
     }
 }

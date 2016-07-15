@@ -23,9 +23,10 @@ import org.gradle.nativeplatform.fixtures.app.WindowsResourceHelloWorldApp
 import org.gradle.test.fixtures.file.TestFile
 import spock.lang.Ignore
 
-import static org.gradle.nativeplatform.fixtures.ToolChainRequirement.VisualCpp
+import static org.gradle.nativeplatform.fixtures.ToolChainRequirement.VISUALCPP
+import static org.gradle.util.Matchers.containsText
 
-@RequiresInstalledToolChain(VisualCpp)
+@RequiresInstalledToolChain(VISUALCPP)
 class WindowsResourcesIntegrationTest extends AbstractNativeLanguageIntegrationTest {
 
     HelloWorldApp helloWorldApp = new WindowsResourceHelloWorldApp()
@@ -50,7 +51,8 @@ model {
         expect:
         fails "mainExecutable"
         failure.assertHasDescription("Execution failed for task ':compileMainExecutableMainRc'.");
-        failure.assertHasCause("Windows resource compiler failed; see the error output for details.")
+        failure.assertHasCause("A build operation failed.")
+        failure.assertThatCause(containsText("Windows resource compiler failed while compiling broken.rc"))
     }
 
     def "can create resources-only shared library"() {
@@ -114,8 +116,8 @@ model {
         run "installMainExecutable"
 
         then:
-        resourceOnlyLibrary("build/binaries/resourcesSharedLibrary/resources").assertExists()
-        installation("build/install/mainExecutable").exec().out == "Hello!"
+        resourceOnlyLibrary("build/libs/resources/shared/resources").assertExists()
+        installation("build/install/main").exec().out == "Hello!"
     }
 
     @Ignore
@@ -124,7 +126,7 @@ model {
         // we create a project path that is ~180 characters to end up
         // with a path for the compiled resources.res > 260 chars
         def projectPathOffset = 180 - testDirectory.getAbsolutePath().length()
-        def nestedProjectPath = RandomStringUtils.randomAlphanumeric(projectPathOffset-10) + "/123456789"
+        def nestedProjectPath = RandomStringUtils.randomAlphanumeric(projectPathOffset - 10) + "/123456789"
 
         setup:
         def deepNestedProjectFolder = file(nestedProjectPath)

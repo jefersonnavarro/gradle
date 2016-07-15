@@ -16,16 +16,15 @@
 
 package org.gradle.internal.resolve.result;
 
-import org.gradle.api.artifacts.ModuleVersionIdentifier;
-import org.gradle.api.artifacts.ModuleVersionSelector;
-import org.gradle.internal.component.model.ComponentResolveMetaData;
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
+import org.gradle.internal.component.model.ComponentResolveMetadata;
 import org.gradle.internal.resolve.ModuleVersionResolveException;
 
 public interface BuildableComponentResolveResult extends ComponentResolveResult, ResourceAwareResolveResult {
     /**
      * Marks the component as resolved, with the given meta-data.
      */
-    void resolved(ComponentResolveMetaData metaData);
+    void resolved(ComponentResolveMetadata metaData);
 
     /**
      * Marks the resolve as failed with the given exception.
@@ -35,15 +34,10 @@ public interface BuildableComponentResolveResult extends ComponentResolveResult,
     /**
      * Marks the component as not found.
      */
-    void notFound(ModuleVersionSelector versionSelector);
-
-    /**
-     * Marks the component as not found.
-     */
-    void notFound(ModuleVersionIdentifier versionIdentifier);
+    void notFound(ModuleComponentIdentifier versionIdentifier);
 
     /**
      * Replaces the meta-data in the result. Result must already be resolved.
      */
-    void setMetaData(ComponentResolveMetaData metaData);
+    void setMetaData(ComponentResolveMetadata metaData);
 }

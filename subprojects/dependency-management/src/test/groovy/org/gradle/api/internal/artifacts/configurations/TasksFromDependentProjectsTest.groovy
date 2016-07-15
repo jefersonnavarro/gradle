@@ -19,13 +19,13 @@
 package org.gradle.api.internal.artifacts.configurations
 
 import org.gradle.api.internal.tasks.TaskDependencyResolveContext
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 import org.gradle.util.TestUtil
-import spock.lang.Specification
 
-class TasksFromDependentProjectsTest extends Specification {
+class TasksFromDependentProjectsTest extends AbstractProjectBuilderSpec {
 
     def context = Mock(TaskDependencyResolveContext)
-    def root = TestUtil.createRootProject()
+    def root = TestUtil.create(temporaryFolder).rootProject()
     def child1 = TestUtil.createChildProject(root, "child1")
     def child2 = TestUtil.createChildProject(root, "child2")
     def child3 = TestUtil.createChildProject(root, "child3")
@@ -43,7 +43,8 @@ class TasksFromDependentProjectsTest extends Specification {
             it.tasks.create "someTask"
         }
 
-        when: dep.resolve(context)
+        when: dep.visitDependencies(context)
+
         then:
         1 * context.getTask() >> child1.tasks["buildDependents"]
         1 * checker.isDependent(child1, "testRuntime", child1) >> false

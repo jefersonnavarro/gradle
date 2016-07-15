@@ -17,75 +17,96 @@
 
 package org.gradle.performance
 
-import org.gradle.performance.fixture.BuildSpecification
+import org.gradle.performance.categories.BasicPerformanceTest
+import org.gradle.performance.fixture.BuildExperimentSpec
+import org.junit.Ignore
+import org.junit.experimental.categories.Category
 import spock.lang.Unroll
 
-class   VariantsPerformanceTest extends AbstractCrossBuildPerformanceTest {
+@Category(BasicPerformanceTest) @Ignore
+class VariantsPerformanceTest extends AbstractCrossBuildPerformanceTest {
 
-    @Unroll
-    def "#size project using variants #scenario build"() {
-        given:
-        runner.testGroup = "project using variants"
-        runner.testId = "$size project using variants $scenario build"
-        runner.buildSpecifications = [
-                BuildSpecification.forProject("${size}VariantsNewModel").displayName("new model").tasksToRun(*tasks).gradleOpts("-Dorg.gradle.caching.classloaders=true").useDaemon().build(),
-                BuildSpecification.forProject("${size}VariantsOldModel").displayName("old model").tasksToRun(*tasks).gradleOpts("-Dorg.gradle.caching.classloaders=true").useDaemon().build()
-        ]
-
-        when:
-        def result = runner.run()
-
-        then:
-        result.assertEveryBuildSucceeds()
-
-        where:
-        [size, tasks] << GroovyCollections.combinations(
-                ["small", "medium", "big"],
-                [["allVariants"], ["help"]]
-        )
-        scenario = tasks == ["help"] ? "empty" : "full"
+    @Override
+    protected void defaultSpec(BuildExperimentSpec.Builder builder) {
+        builder.invocation.gradleOpts("-Xms1g", "-Xmx1g", "-XX:MaxPermSize=256m")
+        super.defaultSpec(builder)
     }
 
     @Unroll
-    def "#size project using variants partial build"() {
-        given:
-        runner.testGroup = "project using variants"
-        runner.testId = "$size project using variants partial build"
-        runner.buildSpecifications = [
-                BuildSpecification.forProject("${size}VariantsNewModel").displayName("new model").tasksToRun('flavour1type1').gradleOpts("-Dorg.gradle.caching.classloaders=true").useDaemon().build(),
-                BuildSpecification.forProject("${size}VariantsOldModel").displayName("old model").tasksToRun('flavour1type1').gradleOpts("-Dorg.gradle.caching.classloaders=true").useDaemon().build()
-        ]
-
+    def "#size project using variants #scenario build"() {
         when:
-        def result = runner.run()
+        runner.testGroup = "project using variants"
+        runner.testId = "$size project using variants $scenario build"
+        runner.buildSpec {
+            projectName("${size}VariantsNewModel").displayName("new model").invocation {
+                tasksToRun(task).useDaemon()
+            }
+        }
+        runner.buildSpec {
+            projectName("${size}VariantsNewModel").displayName("new model (tooling api)").invocation {
+                tasksToRun(task).useToolingApi()
+            }
+        }
+        runner.baseline {
+            projectName("${size}VariantsOldModel").displayName("old model").invocation {
+                tasksToRun(task).useDaemon()
+            }
+        }
+        runner.baseline {
+            projectName("${size}VariantsOldModel").displayName("old model (tooling api)").invocation {
+                tasksToRun(task).useToolingApi()
+            }
+        }
 
         then:
-        result.assertEveryBuildSucceeds()
+        runner.run()
 
         where:
-        size << ["medium", "big"]
+        scenario  | size     | task
+        "empty"   | "small"  | "help"
+        "empty"   | "medium" | "help"
+        "empty"   | "big"    | "help"
+        "full"    | "small"  | "allVariants"
+        "full"    | "medium" | "allVariants"
+        "full"    | "big"    | "allVariants"
+        "partial" | "medium" | "flavour1type1_t1"
+        "partial" | "big"    | "flavour1type1_t1"
     }
 
     @Unroll
     def "multiproject using variants #scenario build"() {
-        given:
+        when:
         runner.testGroup = "project using variants"
         runner.testId = "multiproject using variants $scenario build"
-        runner.buildSpecifications = [
-                BuildSpecification.forProject("variantsNewModelMultiproject").displayName("new model").tasksToRun(*tasks).gradleOpts("-Dorg.gradle.caching.classloaders=true").useDaemon().build(),
-                BuildSpecification.forProject("variantsOldModelMultiproject").displayName("old model").tasksToRun(*tasks).gradleOpts("-Dorg.gradle.caching.classloaders=true").useDaemon().build()
-        ]
-
-        when:
-        def result = runner.run()
+        runner.buildSpec {
+            projectName("variantsNewModelMultiproject").displayName("new model").invocation {
+                tasksToRun(*tasks).useDaemon()
+            }
+        }
+        runner.buildSpec {
+            projectName("variantsNewModelMultiproject").displayName("new model (tooling api)").invocation {
+                tasksToRun(*tasks).useToolingApi()
+            }
+        }
+        runner.baseline {
+            projectName("variantsOldModelMultiproject").displayName("old model").invocation {
+                tasksToRun(*tasks).useDaemon()
+            }
+        }
+        runner.baseline {
+            projectName("variantsOldModelMultiproject").displayName("old model (tooling api)").invocation {
+                tasksToRun(*tasks).useToolingApi()
+            }
+        }
 
         then:
-        result.assertEveryBuildSucceeds()
+        runner.run()
 
         where:
         scenario                      | tasks
-        "single variant"              | [":project1:flavour1type1"]
+        "single variant"              | [":project1:flavour1type1_t1"]
         "all variants single project" | [":project1:allVariants"]
-        "all variants all projects"   | ["allVariants"]
+        // This is causing the performance test process to die and the build to hang: disabling for now.
+//        "all variants all projects"   | ["allVariants"]
     }
 }

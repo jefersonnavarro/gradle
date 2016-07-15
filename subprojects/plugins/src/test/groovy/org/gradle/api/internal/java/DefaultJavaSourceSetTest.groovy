@@ -16,14 +16,16 @@
 package org.gradle.api.internal.java
 import org.gradle.api.file.SourceDirectorySet
 import org.gradle.jvm.Classpath
+import org.gradle.platform.base.internal.DefaultComponentSpecIdentifier
 import spock.lang.Specification
 
 class DefaultJavaSourceSetTest extends Specification {
     def "has useful String representation"() {
-        def resourceSet = new DefaultJavaSourceSet("javaX", "mainX", Stub(SourceDirectorySet), Stub(Classpath))
+        def sourceSet = new DefaultJavaSourceSet(new DefaultComponentSpecIdentifier("project", "javaX"), Stub(SourceDirectorySet), Stub(Classpath))
 
         expect:
-        resourceSet.displayName == "Java source 'mainX:javaX'"
-        resourceSet.toString() == "Java source 'mainX:javaX'"
+        sourceSet.displayName == "Java source 'javaX'"
+        sourceSet.toString() == "Java source 'javaX'"
     }
+
 }

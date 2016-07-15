@@ -17,5 +17,15 @@
 package sample.markdown
 
 import org.gradle.language.base.LanguageSourceSet
+import org.gradle.model.Managed
 
-interface MarkdownSourceSet extends LanguageSourceSet {}
+// START SNIPPET markdown-lang-declaration
+@Managed
+interface MarkdownSourceSet extends LanguageSourceSet {
+    boolean isGenerateIndex()
+    void setGenerateIndex(boolean generateIndex)
+
+    boolean isSmartQuotes()
+    void setSmartQuotes(boolean smartQuotes)
+}
+// END SNIPPET markdown-lang-declaration

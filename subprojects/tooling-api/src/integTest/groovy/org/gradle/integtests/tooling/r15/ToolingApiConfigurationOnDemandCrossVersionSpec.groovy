@@ -14,8 +14,6 @@
  * limitations under the License.
  */
 
-
-
 package org.gradle.integtests.tooling.r15
 
 import org.gradle.integtests.tooling.fixture.TargetGradleVersion

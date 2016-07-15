@@ -19,6 +19,7 @@ package org.gradle.ide.visualstudio.plugins;
 import org.gradle.api.*;
 import org.gradle.api.internal.file.FileResolver;
 import org.gradle.api.internal.project.ProjectIdentifier;
+import org.gradle.api.internal.resolve.ProjectModelResolver;
 import org.gradle.api.tasks.Delete;
 import org.gradle.api.tasks.TaskContainer;
 import org.gradle.ide.visualstudio.VisualStudioProject;
@@ -37,7 +38,6 @@ import org.gradle.model.Mutate;
 import org.gradle.model.RuleSource;
 import org.gradle.nativeplatform.NativeBinarySpec;
 import org.gradle.nativeplatform.NativeComponentSpec;
-import org.gradle.nativeplatform.internal.resolve.ProjectLocator;
 import org.gradle.nativeplatform.plugins.NativeComponentModelPlugin;
 import org.gradle.platform.base.BinaryContainer;
 
@@ -48,18 +48,19 @@ import org.gradle.platform.base.BinaryContainer;
 @Incubating
 public class VisualStudioPlugin implements Plugin<Project> {
 
+    @Override
     public void apply(Project project) {
         project.getPluginManager().apply(NativeComponentModelPlugin.class);
     }
 
     static class Rules extends RuleSource {
         @Model
-        public static VisualStudioExtensionInternal visualStudio(ServiceRegistry serviceRegistry) {
+        public static VisualStudioExtensionInternal visualStudio(ServiceRegistry serviceRegistry, ProjectIdentifier projectIdentifier) {
             Instantiator instantiator = serviceRegistry.get(Instantiator.class);
-            ProjectLocator projectLocator = serviceRegistry.get(ProjectLocator.class);
+            ProjectModelResolver projectModelResolver = serviceRegistry.get(ProjectModelResolver.class);
             FileResolver fileResolver = serviceRegistry.get(FileResolver.class);
 
-            return instantiator.newInstance(DefaultVisualStudioExtension.class, instantiator, projectLocator, fileResolver);
+            return instantiator.newInstance(DefaultVisualStudioExtension.class, projectIdentifier, instantiator, projectModelResolver, fileResolver);
         }
 
         @Mutate
@@ -74,9 +75,8 @@ public class VisualStudioPlugin implements Plugin<Project> {
         }
 
         @Mutate
-        @SuppressWarnings("GroovyUnusedDeclaration")
-        public static void createVisualStudioModelForBinaries(VisualStudioExtensionInternal visualStudioExtension, BinaryContainer binaryContainer) {
-            for (NativeBinarySpec binary : binaryContainer.withType(NativeBinarySpec.class)) {
+        public static void createVisualStudioModelForBinaries(VisualStudioExtensionInternal visualStudioExtension, BinaryContainer binaries) {
+            for (NativeBinarySpec binary : binaries.withType(NativeBinarySpec.class)) {
                 VisualStudioProjectConfiguration configuration = visualStudioExtension.getProjectRegistry().addProjectConfiguration(binary);
 
                 // Only create a solution if one of the binaries is buildable
@@ -88,7 +88,6 @@ public class VisualStudioPlugin implements Plugin<Project> {
         }
 
         @Mutate
-        @SuppressWarnings("GroovyUnusedDeclaration")
         public static void createTasksForVisualStudio(TaskContainer tasks, VisualStudioExtensionInternal visualStudioExtension) {
             for (VisualStudioProject vsProject : visualStudioExtension.getProjects()) {
                 vsProject.builtBy(createProjectsFileTask(tasks, vsProject));
@@ -97,7 +96,7 @@ public class VisualStudioPlugin implements Plugin<Project> {
 
             for (VisualStudioSolution vsSolution : visualStudioExtension.getSolutions()) {
                 Task solutionTask = tasks.create(vsSolution.getName() + "VisualStudio");
-                solutionTask.setDescription(String.format("Generates the '%s' Visual Studio solution file.", vsSolution.getName()));
+                solutionTask.setDescription("Generates the '" + vsSolution.getName() + "' Visual Studio solution file.");
                 vsSolution.setBuildTask(solutionTask);
                 vsSolution.builtBy(createSolutionTask(tasks, vsSolution));
 
@@ -106,7 +105,7 @@ public class VisualStudioPlugin implements Plugin<Project> {
                 Task lifecycleTask = tasks.maybeCreate(component.getName() + "VisualStudio");
                 lifecycleTask.dependsOn(vsSolution);
                 lifecycleTask.setGroup("IDE");
-                lifecycleTask.setDescription(String.format("Generates the Visual Studio solution for %s.", component));
+                lifecycleTask.setDescription("Generates the Visual Studio solution for " + component + ".");
             }
 
             addCleanTask(tasks);

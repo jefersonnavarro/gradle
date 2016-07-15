@@ -19,7 +19,8 @@ package org.gradle.launcher.daemon.server
 import org.gradle.launcher.daemon.protocol.CloseInput
 import org.gradle.launcher.daemon.protocol.ForwardInput
 import org.gradle.launcher.daemon.server.api.StdinHandler
-import org.gradle.messaging.remote.internal.Connection
+import org.gradle.internal.remote.internal.MessageIOException
+import org.gradle.internal.remote.internal.RemoteConnection
 import org.gradle.util.ConcurrentSpecification
 
 import java.util.concurrent.CountDownLatch
@@ -36,9 +37,9 @@ class DefaultDaemonConnectionTest extends ConcurrentSpecification {
 
     def "forwards queued input events to stdin handler until end of input received"() {
         StdinHandler handler = Mock()
-        def input1 = new ForwardInput(1, "hello".bytes)
-        def input2 = new ForwardInput(2, "hello".bytes)
-        def closeInput = new CloseInput(3)
+        def input1 = new ForwardInput("hello".bytes)
+        def input2 = new ForwardInput("hello".bytes)
+        def closeInput = new CloseInput()
         def received = new CountDownLatch(1)
 
         when:
@@ -58,7 +59,7 @@ class DefaultDaemonConnectionTest extends ConcurrentSpecification {
 
     def "generates end of stdin event when connection disconnects"() {
         StdinHandler handler = Mock()
-        def input1 = new ForwardInput(1, "hello".bytes)
+        def input1 = new ForwardInput("hello".bytes)
         def received = new CountDownLatch(1)
 
         when:
@@ -87,9 +88,9 @@ class DefaultDaemonConnectionTest extends ConcurrentSpecification {
 
     def "buffers stdin events"() {
         StdinHandler handler = Mock()
-        def input1 = new ForwardInput(1, "hello".bytes)
-        def input2 = new ForwardInput(2, "hello".bytes)
-        def closeInput = new CloseInput(3)
+        def input1 = new ForwardInput("hello".bytes)
+        def input2 = new ForwardInput("hello".bytes)
+        def closeInput = new CloseInput()
         def received = new CountDownLatch(1)
 
         when:
@@ -123,7 +124,7 @@ class DefaultDaemonConnectionTest extends ConcurrentSpecification {
     def "discards queued messages on stop"() {
         when:
         connection.queueIncoming("incoming")
-        connection.queueIncoming(new ForwardInput(1, "hello".bytes))
+        connection.queueIncoming(new ForwardInput("hello".bytes))
         connection.disconnect()
         daemonConnection.stop()
 
@@ -142,9 +143,9 @@ class DefaultDaemonConnectionTest extends ConcurrentSpecification {
 
     def "handles failure to notify stdin handler"() {
         StdinHandler handler = Mock()
-        def input1 = new ForwardInput(1, "hello".bytes)
-        def input2 = new ForwardInput(2, "hello".bytes)
-        def closeInput = new CloseInput(3)
+        def input1 = new ForwardInput("hello".bytes)
+        def input2 = new ForwardInput("hello".bytes)
+        def closeInput = new CloseInput()
         def received = new CountDownLatch(1)
 
         when:
@@ -334,8 +335,8 @@ class DefaultDaemonConnectionTest extends ConcurrentSpecification {
     def "receive ignores stdin messages"() {
         when:
         connection.queueIncoming("incoming1")
-        connection.queueIncoming(new ForwardInput(12, "yo".bytes))
-        connection.queueIncoming(new CloseInput(44))
+        connection.queueIncoming(new ForwardInput("yo".bytes))
+        connection.queueIncoming(new CloseInput())
         connection.queueIncoming("incoming2")
         def result = []
         result << daemonConnection.receive(20, TimeUnit.SECONDS)
@@ -346,15 +347,18 @@ class DefaultDaemonConnectionTest extends ConcurrentSpecification {
         result == ["incoming1", "incoming2"]
     }
 
-    static class TestConnection implements Connection<Object> {
+    static class TestConnection implements RemoteConnection<Object> {
         final Object lock = new Object()
         final Object endInput = new Object()
         final LinkedList<Object> receiveQueue = new LinkedList<Object>()
 
-        void requestStop() {
+        void dispatch(Object message) {
+            throw new UnsupportedOperationException()
         }
 
-        void dispatch(Object message) {
+        @Override
+        void flush() throws MessageIOException {
+            throw new UnsupportedOperationException()
         }
 
         void queueIncoming(Object message) {

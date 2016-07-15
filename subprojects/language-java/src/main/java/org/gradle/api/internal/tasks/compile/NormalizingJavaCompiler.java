@@ -30,6 +30,8 @@ import org.gradle.util.CollectionUtils;
 import java.io.File;
 import java.util.List;
 
+import static org.gradle.internal.FileUtils.hasExtension;
+
 /**
  * A Java {@link Compiler} which does some normalization of the compile configuration and behaviour before delegating to some other compiler.
  */
@@ -41,6 +43,7 @@ public class NormalizingJavaCompiler implements Compiler<JavaCompileSpec> {
         this.delegate = delegate;
     }
 
+    @Override
     public WorkResult execute(JavaCompileSpec spec) {
         resolveAndFilterSourceFiles(spec);
         resolveClasspath(spec);
@@ -55,7 +58,7 @@ public class NormalizingJavaCompiler implements Compiler<JavaCompileSpec> {
         // which silently excludes files not ending in .java
         FileCollection javaOnly = spec.getSource().filter(new Spec<File>() {
             public boolean isSatisfiedBy(File element) {
-                return element.getName().endsWith(".java");
+                return hasExtension(element, ".java");
             }
         });
 
@@ -72,7 +75,9 @@ public class NormalizingJavaCompiler implements Compiler<JavaCompileSpec> {
     }
 
     private void logSourceFiles(JavaCompileSpec spec) {
-        if (!spec.getCompileOptions().isListFiles()) { return; }
+        if (!spec.getCompileOptions().isListFiles()) {
+            return;
+        }
 
         StringBuilder builder = new StringBuilder();
         builder.append("Source files to be compiled:");
@@ -85,7 +90,9 @@ public class NormalizingJavaCompiler implements Compiler<JavaCompileSpec> {
     }
 
     private void logCompilerArguments(JavaCompileSpec spec) {
-        if (!LOGGER.isDebugEnabled()) { return; }
+        if (!LOGGER.isDebugEnabled()) {
+            return;
+        }
 
         List<String> compilerArgs = new JavaCompilerArgumentsBuilder(spec).includeLauncherOptions(true).includeSourceFiles(true).build();
         String joinedArgs = Joiner.on(' ').join(compilerArgs);

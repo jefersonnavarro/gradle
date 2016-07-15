@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+// Compiler daemon
+sourceCompatibility = 1.6
+
 dependencies {
     compile libraries.groovy
 
@@ -22,7 +25,6 @@ dependencies {
     compile project(":languageScala")
     compile project(":plugins")
 
-
     testCompile libraries.slf4j_api
 
     integTestRuntime project(":ide")
@@ -30,6 +32,6 @@ dependencies {
 
 useTestFixtures(project: ":plugins") // includes core test fixtures
 
-configure([integTest, daemonIntegTest]) {
+integTest {
     jvmArgs "-XX:MaxPermSize=1500m" // AntInProcessScalaCompilerIntegrationTest needs lots of permgen
 }

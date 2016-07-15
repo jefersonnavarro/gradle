@@ -19,25 +19,107 @@
 package org.gradle.api.tasks
 
 import org.gradle.integtests.fixtures.AbstractIntegrationTest
-import org.gradle.integtests.fixtures.TestResources
 import org.gradle.test.fixtures.file.TestFile
-import org.junit.Rule
 import org.junit.Test
 
 import static org.hamcrest.Matchers.equalTo
 import static org.junit.Assert.assertThat
 
 class IncrementalBuildIntegrationTest extends AbstractIntegrationTest {
-    @Rule public final TestResources resource = new TestResources(testDirectoryProvider)
+
+    private TestFile writeDirTransformerTask() {
+        testFile('buildSrc/src/main/groovy/DirTransformerTask.groovy') << '''
+import org.gradle.api.*
+import org.gradle.api.tasks.*
+
+public class DirTransformerTask extends DefaultTask {
+    private File inputDir
+    private File outputDir
+
+    @InputDirectory
+    public File getInputDir() {
+        return inputDir
+    }
+
+    public void setInputDir(File inputDir) {
+        this.inputDir = inputDir
+    }
+
+    @OutputDirectory
+    public File getOutputDir() {
+        return outputDir
+    }
+
+    public void setOutputDir(File outputDir) {
+        this.outputDir = outputDir
+    }
+
+    @TaskAction
+    public void transform() {
+        for (File inputFile : inputDir.listFiles()) {
+            File outputFile = new File(outputDir, inputFile.name)
+            outputFile.text = String.format("[%s]", inputFile.text)
+        }
+    }
+}
+'''
+    }
+
+    private TestFile writeTransformerTask() {
+        testFile('buildSrc/src/main/groovy/TransformerTask.groovy') << '''
+import org.gradle.api.*
+import org.gradle.api.tasks.*
+
+public class TransformerTask extends DefaultTask {
+    private File inputFile
+    private File outputFile
+    private String format = "[%s]"
+
+    @InputFile
+    public File getInputFile() {
+        return inputFile
+    }
+
+    public void setInputFile(File inputFile) {
+        this.inputFile = inputFile
+    }
+
+    @OutputFile
+    public File getOutputFile() {
+        return outputFile
+    }
+
+    public void setOutputFile(File outputFile) {
+        this.outputFile = outputFile
+    }
+
+    @Input
+    public String getFormat() {
+        return format
+    }
+
+    public void setFormat(String format) {
+        this.format = format
+    }
+
+    @TaskAction
+    public void transform() {
+        outputFile.text = String.format(format, inputFile.text)
+    }
+}
+'''
+    }
 
     @Test
     public void skipsTaskWhenOutputFileIsUpToDate() {
+        writeTransformerTask()
+
         testFile('build.gradle') << '''
-task a(type: org.gradle.integtests.TransformerTask) {
+task a(type: TransformerTask) {
     inputFile = file('src.txt')
     outputFile = file('src.a.txt')
 }
-task b(type: org.gradle.integtests.TransformerTask, dependsOn: a) {
+task b(type: TransformerTask, dependsOn: a) {
     inputFile = a.outputFile
     outputFile = file('src.b.txt')
 }
@@ -64,7 +146,7 @@ task b(type: org.gradle.integtests.TransformerTask, dependsOn: a) {
 
         // Update timestamp, no content changes
 
-        inputFile.setLastModified(inputFile.lastModified() - 10000);
+        inputFile.makeOlder()
 
         inTestDirectory().withTasks('b').run().assertTasksExecuted(':a', ':b').assertTasksSkipped(':a', ':b')
 
@@ -109,18 +191,15 @@ task c
         inTestDirectory().withTasks('b').run().assertTasksExecuted(':a', ':b').assertTasksSkipped(':a', ':b')
 
         // Change an input property of the first task (the content format)
-
         testFile('build.gradle').text += '''
-a.format = ' %s '
+a.format = '     %s     '
 '''
-
         inTestDirectory().withTasks('b').run().assertTasksExecuted(':a', ':b').assertTasksSkipped()
 
-        assertThat(outputFileA.text, equalTo(' new content '))
-        assertThat(outputFileB.text, equalTo('[ new content ]'))
+        assertThat(outputFileA.text, equalTo('     new content     '))
+        assertThat(outputFileB.text, equalTo('[     new content     ]'))
 
         // Change final output file destination
-
         testFile('build.gradle').text += '''
 b.outputFile = file('new-output.txt')
 '''
@@ -135,6 +214,8 @@ b.outputFile = file('new-output.txt')
         // Output files already exist before using this version of Gradle
         // delete .gradle dir to simulate this
         testFile('.gradle').assertIsDir().deleteDir()
+        outputFileA.makeOlder()
+        outputFileB.makeOlder()
 
         inTestDirectory().withTasks('b').run().assertTasksExecuted(':a', ':b').assertTasksSkipped()
 
@@ -146,12 +227,14 @@ b.outputFile = file('new-output.txt')
 
     @Test
     public void skipsTaskWhenOutputDirContentsAreUpToDate() {
+        writeDirTransformerTask()
+
         testFile('build.gradle') << '''
-task a(type: org.gradle.integtests.DirTransformerTask) {
+task a(type: DirTransformerTask) {
     inputDir = file('src')
     outputDir = file('build/a')
 }
-task b(type: org.gradle.integtests.DirTransformerTask, dependsOn: a) {
+task b(type: DirTransformerTask, dependsOn: a) {
     inputDir = a.outputDir
     outputDir = file('build/b')
 }
@@ -206,6 +289,8 @@ task b(type: org.gradle.integtests.DirTransformerTask, dependsOn: a) {
         // Output files already exist before using this version of Gradle
         // delete .gradle dir to simulate this
         testFile('.gradle').assertIsDir().deleteDir()
+        outputAFile.makeOlder()
+        outputBFile.makeOlder()
 
         inTestDirectory().withTasks('b').run().assertTasksExecuted(':a', ':b').assertTasksSkipped()
 
@@ -218,7 +303,35 @@ task b(type: org.gradle.integtests.DirTransformerTask, dependsOn: a) {
     @Test
     public void skipsTaskWhenInputPropertiesHaveNotChanged() {
         testFile('build.gradle') << '''
-task a(type: org.gradle.integtests.GeneratorTask) {
+public class GeneratorTask extends DefaultTask {
+    @Input
+    private String text
+    @OutputFile
+    private File outputFile
+
+    public String getText() {
+        return text
+    }
+
+    public void setText(String text) {
+        this.text = text
+    }
+
+    public File getOutputFile() {
+        return outputFile
+    }
+
+    public void setOutputFile(File outputFile) {
+        this.outputFile = outputFile
+    }
+
+    @TaskAction
+    public void generate() {
+        outputFile.text = text
+    }
+}
+
+task a(type: GeneratorTask) {
     text = project.text
     outputFile = file('dest.txt')
 }
@@ -233,12 +346,14 @@ task a(type: org.gradle.integtests.GeneratorTask) {
 
     @Test
     public void multipleTasksCanGenerateIntoOverlappingOutputDirectories() {
+        writeDirTransformerTask()
+
         testFile('build.gradle') << '''
-task a(type: org.gradle.integtests.DirTransformerTask) {
+task a(type: DirTransformerTask) {
     inputDir = file('src/a')
     outputDir = file('build')
 }
-task b(type: org.gradle.integtests.DirTransformerTask) {
+task b(type: DirTransformerTask) {
     inputDir = file('src/b')
     outputDir = file('build')
 }
@@ -265,9 +380,11 @@ task b(type: org.gradle.integtests.DirTransformerTask) {
 
         inTestDirectory().withTasks('a', 'b').run().assertTasksExecuted(':a', ':b').assertTasksSkipped(':a')
 
-        // Change to new version of Gradle
+        // Output files already exist before using this version of Gradle
         // Simulate this by removing the .gradle dir
         testFile('.gradle').assertIsDir().deleteDir()
+        testFile('build/file1.txt').makeOlder()
+        testFile('build/file2.txt').makeOlder()
 
         inTestDirectory().withTasks('a', 'b').run().assertTasksExecuted(':a', ':b').assertTasksSkipped()
 
@@ -282,14 +399,14 @@ task b(type: org.gradle.integtests.DirTransformerTask) {
         testFile('build.gradle') << '''
 task inputsAndOutputs {
     inputs.files 'src.txt'
-    outputs.files 'src.a.txt'
+    outputs.file 'src.a.txt'
     outputs.upToDateWhen { project.hasProperty('uptodate') }
     doFirst {
         outputs.files.singleFile.text = "[${inputs.files.singleFile.text}]"
     }
 }
 task noOutputs {
-    inputs.files 'src.txt'
+    inputs.file 'src.txt'
     outputs.upToDateWhen { project.hasProperty('uptodate') }
     doFirst { }
 }
@@ -339,8 +456,10 @@ task nothing {
 
     @Test
     public void lifecycleTaskIsUpToDateWhenAllDependenciesAreSkipped() {
+        writeTransformerTask()
+
         testFile('build.gradle') << '''
-task a(type: org.gradle.integtests.TransformerTask) {
+task a(type: TransformerTask) {
     inputFile = file('src.txt')
     outputFile = file('out.txt')
 }
@@ -355,18 +474,20 @@ task b(dependsOn: a)
 
     @Test
     public void canShareArtifactsBetweenBuilds() {
+        writeTransformerTask()
+
         def buildFile = testFile('build.gradle') << '''
 task otherBuild(type: GradleBuild) {
     buildFile = 'build.gradle'
     tasks = ['generate']
     startParameter.searchUpwards = false
 }
-task transform(type: org.gradle.integtests.TransformerTask) {
+task transform(type: TransformerTask) {
     dependsOn otherBuild
     inputFile = file('generated.txt')
     outputFile = file('out.txt')
 }
-task generate(type: org.gradle.integtests.TransformerTask) {
+task generate(type: TransformerTask) {
     inputFile = file('src.txt')
     outputFile = file('generated.txt')
 }

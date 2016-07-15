@@ -16,14 +16,13 @@
 
 package org.gradle.integtests.tooling.m8
 
-import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
+import org.gradle.integtests.fixtures.executer.ExecutionResult
+import org.gradle.integtests.tooling.fixture.ToolingApiLoggingSpecification
 import org.junit.Assume
 
-class ToolingApiLoggingCrossVersionSpec extends ToolingApiSpecification {
+class ToolingApiLoggingCrossVersionSpec extends ToolingApiLoggingSpecification {
 
     def setup() {
-        //for embedded tests we don't mess with global logging. Run with forks only.
-        toolingApi.requireDaemons()
         reset()
     }
 
@@ -86,14 +85,14 @@ project.logger.info ("info logging");
 project.logger.debug("debug logging");
 """
         when:
-        def commandLineResult = targetDist.executer(temporaryFolder).run();
+        def commandLineResult = runUsingCommandLine();
 
         and:
         def op = withBuild()
 
         then:
-        def out = op.standardOutput
-        def err = op.standardError
+        def out = op.result.output
+        def err = op.result.error
         normaliseOutput(out) == normaliseOutput(commandLineResult.output)
         err == commandLineResult.error
 
@@ -107,6 +106,14 @@ project.logger.debug("debug logging");
         out.count("quiet logging") == 1
         out.count("info") == 0
         out.count("debug") == 0
+    }
+
+    private ExecutionResult runUsingCommandLine() {
+        targetDist.executer(temporaryFolder)
+            .requireGradleDistribution()
+            .withArgument("--no-daemon") //suppress daemon usage suggestions
+            .withBuildJvmOpts("-Dorg.gradle.deprecation.trace=false") //suppress deprecation stack trace
+            .run()
     }
 
     String normaliseOutput(String output) {

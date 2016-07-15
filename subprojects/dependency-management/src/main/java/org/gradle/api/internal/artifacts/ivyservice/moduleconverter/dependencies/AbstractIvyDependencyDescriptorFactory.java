@@ -16,18 +16,15 @@
 
 package org.gradle.api.internal.artifacts.ivyservice.moduleconverter.dependencies;
 
-import org.apache.ivy.core.module.descriptor.DefaultDependencyArtifactDescriptor;
-import org.apache.ivy.core.module.descriptor.DefaultDependencyDescriptor;
-import org.gradle.api.InvalidUserDataException;
-import org.gradle.api.artifacts.Dependency;
+import org.gradle.api.Transformer;
 import org.gradle.api.artifacts.DependencyArtifact;
 import org.gradle.api.artifacts.ExcludeRule;
-import org.gradle.api.artifacts.ModuleDependency;
-import org.gradle.api.internal.artifacts.ivyservice.moduleconverter.ExcludeRuleConverter;
-import org.gradle.util.WrapUtil;
+import org.gradle.internal.component.model.DefaultIvyArtifactName;
+import org.gradle.internal.component.model.Exclude;
+import org.gradle.internal.component.model.IvyArtifactName;
+import org.gradle.util.CollectionUtils;
 
-import java.net.MalformedURLException;
-import java.net.URL;
+import java.util.List;
 import java.util.Set;
 
 public abstract class AbstractIvyDependencyDescriptorFactory implements IvyDependencyDescriptorFactory {
@@ -37,41 +34,25 @@ public abstract class AbstractIvyDependencyDescriptorFactory implements IvyDepen
         this.excludeRuleConverter = excludeRuleConverter;
     }
 
-    protected void addExcludesArtifactsAndDependencies(String configuration, ModuleDependency dependency,
-                                                       DefaultDependencyDescriptor dependencyDescriptor) {
-        addArtifacts(configuration, dependency.getArtifacts(), dependencyDescriptor);
-        addExcludes(configuration, dependency.getExcludeRules(), dependencyDescriptor);
-        addDependencyConfiguration(configuration, dependency, dependencyDescriptor);
+    private String getExtension(DependencyArtifact artifact) {
+        return artifact.getExtension() != null ? artifact.getExtension() : artifact.getType();
     }
 
-    private void addArtifacts(String configuration, Set<DependencyArtifact> artifacts,
-                              DefaultDependencyDescriptor dependencyDescriptor) {
-        for (DependencyArtifact artifact : artifacts) {
-            DefaultDependencyArtifactDescriptor artifactDescriptor;
-            try {
-                artifactDescriptor = new DefaultDependencyArtifactDescriptor(dependencyDescriptor, artifact.getName(),
-                        artifact.getType(),
-                        artifact.getExtension() != null ? artifact.getExtension() : artifact.getType(),
-                        artifact.getUrl() != null ? new URL(artifact.getUrl()) : null,
-                        artifact.getClassifier() != null ? WrapUtil.toMap(Dependency.CLASSIFIER,
-                                artifact.getClassifier()) : null);
-            } catch (MalformedURLException e) {
-                throw new InvalidUserDataException("URL for artifact can't be parsed: " + artifact.getUrl(), e);
+    protected List<Exclude> convertExcludeRules(final String configuration, Set<ExcludeRule> excludeRules) {
+        return CollectionUtils.collect((Iterable<ExcludeRule>) excludeRules, new Transformer<Exclude, ExcludeRule>() {
+            @Override
+            public Exclude transform(ExcludeRule excludeRule) {
+                return excludeRuleConverter.convertExcludeRule(configuration, excludeRule);
             }
-            dependencyDescriptor.addDependencyArtifact(configuration, artifactDescriptor);
-        }
+        });
     }
 
-    private void addDependencyConfiguration(String configuration, ModuleDependency dependency,
-                                            DefaultDependencyDescriptor dependencyDescriptor) {
-        dependencyDescriptor.addDependencyConfiguration(configuration, dependency.getConfiguration());
-    }
-
-    private void addExcludes(String configuration, Set<ExcludeRule> excludeRules,
-                             DefaultDependencyDescriptor dependencyDescriptor) {
-        for (ExcludeRule excludeRule : excludeRules) {
-            dependencyDescriptor.addExcludeRule(configuration, excludeRuleConverter.createExcludeRule(configuration,
-                    excludeRule));
-        }
+    protected Set<IvyArtifactName> convertArtifacts(Set<DependencyArtifact> dependencyArtifacts) {
+        return CollectionUtils.collect(dependencyArtifacts, new Transformer<IvyArtifactName, DependencyArtifact>() {
+            @Override
+            public IvyArtifactName transform(DependencyArtifact dependencyArtifact) {
+                return new DefaultIvyArtifactName(dependencyArtifact.getName(), dependencyArtifact.getType(), getExtension(dependencyArtifact), dependencyArtifact.getClassifier());
+            }
+        });
     }
 }

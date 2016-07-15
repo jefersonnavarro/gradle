@@ -127,7 +127,7 @@ assert classesDir.directory
         noExceptionThrown()
     }
 
-    @IgnoreIf({ AvailableJavaHomes.differentJdk == null})
+    @IgnoreIf({ AvailableJavaHomes.differentJdk == null })
     def "java home from environment should be used to run build"() {
         def alternateJavaHome = AvailableJavaHomes.differentJdk.javaHome
 
@@ -146,32 +146,32 @@ assert classesDir.directory
         out.contains("javaHome=" + alternateJavaHome.canonicalPath)
     }
 
-    @IgnoreIf({ AvailableJavaHomes.differentJdk == null})
+    @IgnoreIf({ AvailableJavaHomes.differentJdk == null })
     def "java home from gradle properties should be used to run build"() {
         def alternateJavaHome = AvailableJavaHomes.differentJdk.javaHome
 
-        file('gradle.properties') << "org.gradle.java.home=${TextUtil.escapeString(alternateJavaHome.canonicalPath)}"
-
+        file('gradle.properties') << """
+org.gradle.java.home=${TextUtil.escapeString(alternateJavaHome.canonicalPath)}
+"""
         file('build.gradle') << "println 'javaHome=' + org.gradle.internal.jvm.Jvm.current().javaHome.absolutePath"
 
         when:
-        // Need the forking executer for this to work. Embedded executer will not fork a new process if jvm doesn't match.
-        def out = executer.requireGradleHome().run().output
+        def out = executer.useDefaultBuildJvmArgs().run().output
 
         then:
         out.contains("javaHome=" + alternateJavaHome.canonicalPath)
     }
 
     def "jvm args from gradle properties should be used to run build"() {
-        file('gradle.properties') << "org.gradle.jvmargs=-Xmx32m -Dsome-prop=some-value"
+        file('gradle.properties') << "org.gradle.jvmargs=-Xmx52m -Dsome-prop=some-value"
 
         file('build.gradle') << """
-assert java.lang.management.ManagementFactory.runtimeMXBean.inputArguments.contains('-Xmx32m')
+assert java.lang.management.ManagementFactory.runtimeMXBean.inputArguments.contains('-Xmx52m')
 assert System.getProperty('some-prop') == 'some-value'
 """
 
         when:
-        executer.requireGradleHome().withNoDefaultJvmArgs().run()
+        executer.requireGradleDistribution().useDefaultBuildJvmArgs().run()
 
         then:
         noExceptionThrown()

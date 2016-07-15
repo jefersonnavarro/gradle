@@ -16,16 +16,16 @@
 
 package org.gradle.launcher.daemon.server;
 
-import org.gradle.internal.concurrent.CompositeStoppable;
-import org.gradle.internal.concurrent.Stoppable;
 import org.gradle.internal.UncheckedException;
+import org.gradle.internal.concurrent.CompositeStoppable;
 import org.gradle.internal.concurrent.ExecutorFactory;
+import org.gradle.internal.concurrent.Stoppable;
 import org.gradle.internal.concurrent.StoppableExecutor;
 import org.gradle.launcher.daemon.protocol.*;
 import org.gradle.launcher.daemon.server.api.DaemonConnection;
 import org.gradle.launcher.daemon.server.api.StdinHandler;
-import org.gradle.logging.internal.OutputEvent;
-import org.gradle.messaging.remote.internal.Connection;
+import org.gradle.internal.logging.events.OutputEvent;
+import org.gradle.internal.remote.internal.RemoteConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,14 +39,14 @@ import java.util.concurrent.locks.ReentrantLock;
 
 public class DefaultDaemonConnection implements DaemonConnection {
     private static final Logger LOGGER = LoggerFactory.getLogger(DefaultDaemonConnection.class);
-    private final Connection<Object> connection;
+    private final RemoteConnection<Message> connection;
     private final StoppableExecutor executor;
     private final StdinQueue stdinQueue;
     private final DisconnectQueue disconnectQueue;
     private final CancelQueue cancelQueue;
     private final ReceiveQueue receiveQueue;
 
-    public DefaultDaemonConnection(final Connection<Object> connection, ExecutorFactory executorFactory) {
+    public DefaultDaemonConnection(final RemoteConnection<Message> connection, ExecutorFactory executorFactory) {
         this.connection = connection;
         stdinQueue = new StdinQueue(executorFactory);
         disconnectQueue = new DisconnectQueue();
@@ -62,23 +62,25 @@ public class DefaultDaemonConnection implements DaemonConnection {
                         try {
                             message = connection.receive();
                         } catch (Exception e) {
-                            LOGGER.debug("Could not receive message from client.", e);
+                            if (LOGGER.isDebugEnabled()) {
+                                LOGGER.debug(String.format("thread %s: Could not receive message from client.", Thread.currentThread().getId()), e);
+                            }
                             failure = e;
                             return;
                         }
                         if (message == null) {
-                            LOGGER.debug("Received end-of-input from client.");
+                            LOGGER.debug("thread {}: Received end-of-input from client.", Thread.currentThread().getId());
                             return;
                         }
 
-                        if (message instanceof IoCommand) {
-                            LOGGER.debug("Received IO message from client: {}", message);
-                            stdinQueue.add((IoCommand) message);
+                        if (message instanceof InputMessage) {
+                            LOGGER.debug("thread {}: Received IO message from client: {}", Thread.currentThread().getId(), message);
+                            stdinQueue.add((InputMessage) message);
                         } else if (message instanceof Cancel) {
-                            LOGGER.debug("Received cancel message from client: {}", message);
+                            LOGGER.debug("thread {}: Received cancel message from client: {}", Thread.currentThread().getId(), message);
                             cancelQueue.add((Cancel) message);
                         } else {
-                            LOGGER.debug("Received non-IO message from client: {}", message);
+                            LOGGER.debug("thread {}: Received non-IO message from client: {}", Thread.currentThread().getId(), message);
                             receiveQueue.add(message);
                         }
                     }
@@ -110,18 +112,28 @@ public class DefaultDaemonConnection implements DaemonConnection {
 
     public void daemonUnavailable(DaemonUnavailable unavailable) {
         connection.dispatch(unavailable);
+        connection.flush();
     }
 
     public void buildStarted(BuildStarted buildStarted) {
         connection.dispatch(buildStarted);
+        connection.flush();
     }
 
     public void logEvent(OutputEvent logEvent) {
-        connection.dispatch(logEvent);
+        connection.dispatch(new OutputMessage(logEvent));
+        connection.flush();
+    }
+
+    @Override
+    public void event(Object event) {
+        connection.dispatch(new BuildEvent(event));
+        connection.flush();
     }
 
     public void completed(Result result) {
         connection.dispatch(result);
+        connection.flush();
     }
 
     public void stop() {
@@ -133,7 +145,7 @@ public class DefaultDaemonConnection implements DaemonConnection {
         CompositeStoppable.stoppable(disconnectQueue, connection, executor, receiveQueue, stdinQueue, cancelQueue).stop();
     }
 
-    private static abstract class CommandQueue<C extends Command, H> implements Stoppable {
+    private static abstract class CommandQueue<C extends Message, H> implements Stoppable {
         private final Lock lock = new ReentrantLock();
         private final Condition condition = lock.newCondition();
         protected final LinkedList<C> queue = new LinkedList<C>();
@@ -248,13 +260,13 @@ public class DefaultDaemonConnection implements DaemonConnection {
         }
     }
 
-    private static class StdinQueue extends CommandQueue<IoCommand, StdinHandler> {
+    private static class StdinQueue extends CommandQueue<InputMessage, StdinHandler> {
 
         private StdinQueue(ExecutorFactory executorFactory) {
             super(executorFactory, "Stdin handler");
         }
 
-        protected boolean doHandleCommand(final StdinHandler handler, IoCommand command) {
+        protected boolean doHandleCommand(final StdinHandler handler, InputMessage command) {
             try {
                 if (command instanceof CloseInput) {
                     handler.onEndOfInput();
@@ -272,7 +284,7 @@ public class DefaultDaemonConnection implements DaemonConnection {
         @Override
         protected void doHandleDisconnect() {
             queue.clear();
-            queue.add(new CloseInput("<disconnected>"));
+            queue.add(new CloseInput());
         }
     }
 

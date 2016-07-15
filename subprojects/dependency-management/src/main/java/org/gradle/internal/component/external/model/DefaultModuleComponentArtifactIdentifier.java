@@ -16,29 +16,21 @@
 
 package org.gradle.internal.component.external.model;
 
-import org.apache.ivy.core.module.descriptor.Artifact;
 import org.gradle.api.Nullable;
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.internal.component.model.DefaultIvyArtifactName;
 import org.gradle.internal.component.model.IvyArtifactName;
 
-import java.util.Collections;
-import java.util.Map;
-
 public class DefaultModuleComponentArtifactIdentifier implements ModuleComponentArtifactIdentifier {
     private final ModuleComponentIdentifier componentIdentifier;
     private final IvyArtifactName name;
 
-    public DefaultModuleComponentArtifactIdentifier(ModuleComponentIdentifier componentIdentifier, Artifact artifact) {
-        this(componentIdentifier, artifact.getName(), artifact.getType(), artifact.getExt(), artifact.getExtraAttributes());
-    }
-
     public DefaultModuleComponentArtifactIdentifier(ModuleComponentIdentifier componentIdentifier, String name, String type, @Nullable String extension) {
-        this(componentIdentifier, name, type, extension, Collections.<String, String>emptyMap());
+        this(componentIdentifier, new DefaultIvyArtifactName(name, type, extension));
     }
 
-    public DefaultModuleComponentArtifactIdentifier(ModuleComponentIdentifier componentIdentifier, String name, String type, @Nullable String extension, Map<String, String> attributes) {
-        this(componentIdentifier, new DefaultIvyArtifactName(name, type, extension, attributes));
+    public DefaultModuleComponentArtifactIdentifier(ModuleComponentIdentifier componentIdentifier, String name, String type, @Nullable String extension, @Nullable String classifier) {
+        this(componentIdentifier, new DefaultIvyArtifactName(name, type, extension, classifier));
     }
 
     public DefaultModuleComponentArtifactIdentifier(ModuleComponentIdentifier componentIdentifier, IvyArtifactName artifact) {
@@ -47,7 +39,12 @@ public class DefaultModuleComponentArtifactIdentifier implements ModuleComponent
     }
 
     public String getDisplayName() {
-        return String.format("%s (%s)", name, componentIdentifier);
+        StringBuilder builder = new StringBuilder();
+        builder.append(name.toString());
+        builder.append(" (");
+        builder.append(componentIdentifier.toString());
+        builder.append(")");
+        return builder.toString();
     }
 
     public IvyArtifactName getName() {

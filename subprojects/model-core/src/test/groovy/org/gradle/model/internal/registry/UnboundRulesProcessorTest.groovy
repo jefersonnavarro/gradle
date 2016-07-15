@@ -20,20 +20,16 @@ import org.gradle.api.Transformer
 import org.gradle.internal.Transformers
 import org.gradle.model.internal.core.ModelPath
 import org.gradle.model.internal.core.ModelReference
-import org.gradle.model.internal.type.ModelType
-import org.gradle.model.internal.core.rule.describe.ModelRuleDescriptor
-import org.gradle.model.internal.core.rule.describe.SimpleModelRuleDescriptor
 import org.gradle.model.internal.report.unbound.UnboundRule
 import org.gradle.model.internal.report.unbound.UnboundRuleInput
 import org.gradle.model.internal.report.unbound.UnboundRulesReporter
 import org.gradle.util.ConfigureUtil
-import spock.lang.Specification
 
 import static org.gradle.util.TextUtil.normaliseLineSeparators
 
-class UnboundRulesProcessorTest extends Specification {
+class UnboundRulesProcessorTest extends RegistrySpec {
 
-    List<RuleBinder<?>> binders = []
+    List<RuleBinder> binders = []
 
     Transformer<List<ModelPath>, ModelPath> suggestionProvider = Transformers.constant([])
 
@@ -89,14 +85,17 @@ class UnboundRulesProcessorTest extends Specification {
 
     def "creates unbound rules for unfulfilled binders with unbound input references"() {
         binder {
+            subjectReference("subject", Boolean)
             descriptor("ruleWithUnboundInputReferences")
             inputReference("reference.first", String)
             inputReference("reference.second", Number)
+            bindSubjectReference("subject")
         }
 
         expect:
         reportForProcessedBinders == reportFor(
                 UnboundRule.descriptor("ruleWithUnboundInputReferences")
+                        .mutableInput(UnboundRuleInput.type(Boolean).path("subject").bound())
                         .immutableInput(UnboundRuleInput.type(String).path("reference.first"))
                         .immutableInput(UnboundRuleInput.type(Number).path("reference.second"))
         )
@@ -140,6 +139,7 @@ class UnboundRulesProcessorTest extends Specification {
     }
 
     def "creates unbound rules with suggestions"() {
+        given:
         binder {
             descriptor("ruleWithSuggestions")
             subjectReference("subject", Number)
@@ -164,10 +164,9 @@ class UnboundRulesProcessorTest extends Specification {
     def "creates scoped unbound rules with by-type bound subject"() {
         binder {
             descriptor("ruleWithUnboundSubjectReference")
-            scope("some.scope")
-            subjectReference(String)
+            subjectReference(ModelReference.of(String).inScope(ModelPath.path("some.scope")))
             inputReference(String)
-            inputReference("input", Boolean)
+            inputReference(ModelReference.of(Boolean).inScope(ModelPath.path("other.scope")))
         }
 
         expect:
@@ -175,74 +174,9 @@ class UnboundRulesProcessorTest extends Specification {
                 UnboundRule.descriptor("ruleWithUnboundSubjectReference")
                         .mutableInput(UnboundRuleInput.type(String).scope("some.scope"))
                         .immutableInput(UnboundRuleInput.type(String))
-                        .immutableInput(UnboundRuleInput.type(Boolean).path("some.scope.input"))
+                        .immutableInput(UnboundRuleInput.type(Boolean).scope("other.scope"))
         )
     }
 
-    def "creates scoped unbound rules with by-path bound subject"() {
-        binder {
-            descriptor("ruleWithUnboundSubjectReference")
-            scope("some.scope")
-            subjectReference("subject", String)
-        }
 
-        expect:
-        reportForProcessedBinders == reportFor(
-                UnboundRule.descriptor("ruleWithUnboundSubjectReference")
-                        .mutableInput(UnboundRuleInput.type(String).path("some.scope.subject"))
-        )
-    }
-
-    private class RuleBinderTestBuilder {
-
-        private ModelRuleDescriptor descriptor
-        private ModelReference<?> subjectReference
-        private String subjectReferenceBindingPath
-        private List<ModelReference<?>> inputReferences = []
-        private Map<Integer, String> boundInputReferencePaths = [:]
-        private ModelPath scope = ModelPath.ROOT
-
-        void subjectReference(Class type) {
-            subjectReference = ModelReference.of(ModelType.of(type))
-        }
-
-        void subjectReference(String path, Class type) {
-            subjectReference = ModelReference.of(new ModelPath(path), ModelType.of(type))
-        }
-
-        void bindSubjectReference(String path) {
-            subjectReferenceBindingPath = path
-        }
-
-        void inputReference(Class type) {
-            inputReferences.add(ModelReference.of(ModelType.of(type)))
-        }
-
-        void inputReference(String path, Class type) {
-            inputReferences.add(ModelReference.of(new ModelPath(path), ModelType.of(type)))
-        }
-
-        void bindInputReference(int index, String path) {
-            boundInputReferencePaths[index] = path
-        }
-
-        void descriptor(String descriptor) {
-            this.descriptor = new SimpleModelRuleDescriptor(descriptor)
-        }
-
-        void scope(String path) {
-            scope = ModelPath.path(path)
-        }
-
-        RuleBinder build() {
-            def binder = new RuleBinder(subjectReference, inputReferences, descriptor, scope, null)
-            if (subjectReferenceBindingPath) {
-                binder.bindSubject(new ModelPath(subjectReferenceBindingPath))
-            }
-            boundInputReferencePaths.each { index, path ->
-                binder.bindInput(index, new ModelPath(path))
-            }
-            return binder
-        }
-    }
 }

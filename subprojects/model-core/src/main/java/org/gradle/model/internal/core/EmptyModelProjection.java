@@ -16,6 +16,7 @@
 
 package org.gradle.model.internal.core;
 
+import com.google.common.base.Optional;
 import org.gradle.api.Nullable;
 import org.gradle.model.internal.core.rule.describe.ModelRuleDescriptor;
 import org.gradle.model.internal.type.ModelType;
@@ -24,35 +25,36 @@ import java.util.Collections;
 
 public class EmptyModelProjection implements ModelProjection {
 
+    public static final ModelProjection INSTANCE = new EmptyModelProjection();
+
+    private EmptyModelProjection() {
+    }
+
     @Nullable
     @Override
-    public <T> ModelView<? extends T> asReadOnly(ModelType<T> type, MutableModelNode node, @Nullable ModelRuleDescriptor ruleDescriptor) {
+    public <T> ModelView<? extends T> asImmutable(ModelType<T> type, MutableModelNode node, @Nullable ModelRuleDescriptor ruleDescriptor) {
         return null;
     }
 
     @Nullable
     @Override
-    public <T> ModelView<? extends T> asWritable(ModelType<T> type, MutableModelNode node, ModelRuleDescriptor ruleDescriptor, @Nullable Inputs inputs) {
+    public <T> ModelView<? extends T> asMutable(ModelType<T> type, MutableModelNode node, ModelRuleDescriptor ruleDescriptor) {
         return null;
     }
 
     @Override
-    public <T> boolean canBeViewedAsWritable(ModelType<T> type) {
+    public <T> boolean canBeViewedAs(ModelType<T> type) {
         return false;
     }
 
     @Override
-    public <T> boolean canBeViewedAsReadOnly(ModelType<T> type) {
-        return false;
-    }
-
-    @Override
-    public Iterable<String> getWritableTypeDescriptions() {
+    public Iterable<String> getTypeDescriptions(MutableModelNode node) {
         return Collections.emptyList();
     }
 
     @Override
-    public Iterable<String> getReadableTypeDescriptions() {
-        return Collections.emptyList();
+    public Optional<String> getValueDescription(MutableModelNode modelNodeInternal) {
+        return Optional.absent();
     }
+
 }

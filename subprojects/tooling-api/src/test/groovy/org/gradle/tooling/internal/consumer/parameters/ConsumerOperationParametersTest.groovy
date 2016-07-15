@@ -17,69 +17,37 @@
 package org.gradle.tooling.internal.consumer.parameters
 
 import com.google.common.collect.Sets
+import org.gradle.internal.classpath.DefaultClassPath
 import org.gradle.tooling.internal.adapter.ProtocolToModelAdapter
+import org.gradle.tooling.internal.consumer.converters.FixedBuildIdentifierProvider
 import org.gradle.tooling.internal.gradle.TaskListingLaunchable
+import org.gradle.tooling.internal.connection.DefaultBuildIdentifier
+import org.gradle.tooling.internal.connection.DefaultProjectIdentifier
 import org.gradle.tooling.internal.protocol.InternalLaunchable
 import org.gradle.tooling.model.TaskSelector
 import spock.lang.Specification
 
 class ConsumerOperationParametersTest extends Specification {
 
-    def "null or empty arguments have the same meaning"() {
-        def params = ConsumerOperationParameters.builder()
-        when:
-        params.arguments = null
+    def builder = ConsumerOperationParameters.builder().setEntryPoint("entry-point")
 
-        then:
-        params.build().arguments == null
-
-        when:
-        params.arguments = []
-
-        then:
-        params.build().arguments == null
+    def "can build consumer operation parameters for provided properties"() {
+        given:
+        def tasks = ['a', 'b']
+        def classpath = new DefaultClassPath(new File('/Users/foo/bar/test.jar'), new File('/Users/foo/bar/resources'))
 
         when:
-        params.arguments = ['-Dfoo']
-
-        then:
-        params.build().arguments == ['-Dfoo']
-    }
-
-    def "null or empty jvm arguments have the same meaning"() {
-        def params = ConsumerOperationParameters.builder()
-        when:
-        params.jvmArguments = null
-
-        then:
-        params.build().jvmArguments == null
-
-        when:
-        params.jvmArguments = []
-
-        then:
-        params.build().jvmArguments == null
-
-        when:
-        params.jvmArguments = ['-Xmx']
-
-        then:
-        params.build().jvmArguments == ['-Xmx']
-    }
-
-    def "task names and empty launchables"() {
-        def builder = ConsumerOperationParameters.builder()
-        when:
-        builder.tasks = ['a', 'b']
+        builder.tasks = tasks
+        builder.injectedPluginClasspath = classpath
         def params = builder.build()
 
         then:
-        params.tasks == ['a', 'b']
+        params.tasks == tasks
+        params.injectedPluginClasspath == classpath.asFiles
         params.launchables == null
     }
 
     def "launchables from provider"() {
-        def builder = ConsumerOperationParameters.builder()
         when:
         def launchable1 = Mock(InternalLaunchable)
         def launchable2 = Mock(InternalLaunchable)
@@ -92,7 +60,6 @@ class ConsumerOperationParametersTest extends Specification {
     }
 
     def "launchables from adapters"() {
-        def builder = ConsumerOperationParameters.builder()
         when:
         def launchable1 = Mock(TaskListingLaunchable)
         def paths1 = Sets.newTreeSet()
@@ -108,10 +75,14 @@ class ConsumerOperationParametersTest extends Specification {
 
         then:
         params.tasks == [':a', ':b', ':lib:b']
-        params.launchables == []
+        params.launchables == null
     }
 
     def adapt(def object) {
-        return new ProtocolToModelAdapter().adapt(TaskSelector, object)
+        return new ProtocolToModelAdapter().adapt(TaskSelector, object, new FixedBuildIdentifierProvider(id()))
+    }
+
+    def id() {
+        return new DefaultProjectIdentifier(new DefaultBuildIdentifier(new File("foo")), ":")
     }
 }

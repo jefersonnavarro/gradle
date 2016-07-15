@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 package org.gradle.nativeplatform.toolchain
+
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
 import org.gradle.nativeplatform.fixtures.app.CppCompilerDetectingTestApp
 
@@ -53,7 +54,7 @@ model {
         run "mainExecutable"
 
         then:
-        def mainExecutable = executable("build/binaries/mainExecutable/main")
+        def mainExecutable = executable("build/exe/main/main")
         mainExecutable.assertExists()
         mainExecutable.exec().out == helloWorldApp.expectedOutput(toolChain)
 
@@ -83,7 +84,7 @@ model {
         run "mainExecutable"
 
         then:
-        def mainExecutable = executable("build/binaries/mainExecutable/main")
+        def mainExecutable = executable("build/exe/main/main")
         mainExecutable.assertExists()
         mainExecutable.exec().out == helloWorldApp.expectedOutput(toolChain)
     }

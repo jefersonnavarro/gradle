@@ -14,22 +14,27 @@
  * limitations under the License.
  */
 package org.gradle.nativeplatform.test.googletest
+import org.gradle.language.cpp.CppSourceSet
 import org.gradle.language.cpp.plugins.CppPlugin
-import org.gradle.model.internal.core.ModelPath
-import org.gradle.model.internal.type.ModelType
 import org.gradle.nativeplatform.NativeLibrarySpec
-import org.gradle.nativeplatform.test.googletest.plugins.GoogleTestPlugin
-import org.gradle.platform.base.test.TestSuiteContainer
+import org.gradle.nativeplatform.test.googletest.plugins.GoogleTestConventionPlugin
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.gradle.testing.base.TestSuiteSpec
 import org.gradle.util.TestUtil
+import org.junit.Rule
 import spock.lang.Specification
 
-class GoogleTestTest extends Specification {
-    final def project = TestUtil.createRootProject();
+import static org.gradle.model.internal.type.ModelTypes.modelMap
 
-    def "check the correct binary type are created for the test suite"() {
-        when:
+class GoogleTestTest extends Specification {
+    @Rule
+    TestNameTestDirectoryProvider testDir = new TestNameTestDirectoryProvider()
+    final def project = TestUtil.create(testDir).rootProject();
+
+    def "creates a test suite for each library under test"() {
+        given:
         project.apply(plugin: CppPlugin)
-        project.apply(plugin: GoogleTestPlugin)
+        project.apply(plugin: GoogleTestConventionPlugin)
         project.model {
             components {
                 main(NativeLibrarySpec)
@@ -37,8 +42,17 @@ class GoogleTestTest extends Specification {
         }
         project.evaluate()
 
+        when:
+        GoogleTestTestSuiteSpec testSuite = project.modelRegistry.realize("testSuites", modelMap(TestSuiteSpec)).mainTest
+        def sources = testSuite.sources.values()
+        def binaries = testSuite.binaries.values()
+
         then:
-        def binaries = project.modelRegistry.realize(ModelPath.path("testSuites"), ModelType.of(TestSuiteContainer)).getByName("mainTest").binaries
-        binaries.collect({ it instanceof GoogleTestTestSuiteBinarySpec }) == [true] * binaries.size()
+        sources.size() == 1
+        sources.every { it instanceof CppSourceSet }
+
+        and:
+        binaries.size() == 1
+        binaries.every { it instanceof GoogleTestTestSuiteBinarySpec }
     }
 }

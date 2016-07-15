@@ -26,7 +26,11 @@ class ReleasedVersions {
     private static final int MILLIS_PER_DAY = 24 * 60 * 60 * 1000
 
     private lowestInterestingVersion = GradleVersion.version("0.8")
+    private lowestTestedVersion = GradleVersion.version("1.0")
+    private currentVersion = GradleVersion.current()
     private def versions
+    private def testedVersions
+    private def snapshots
 
     File destFile
     String url = "https://services.gradle.org/versions/all"
@@ -35,16 +39,18 @@ class ReleasedVersions {
     void prepare() {
         download()
         versions = calculateVersions()
+        testedVersions = calculateVersions(lowestTestedVersion)
+        snapshots = calculateSnapshots()
     }
 
     private void download() {
         if (offline) {
             if (!destFile.isFile()) {
                 throw new RuntimeException("The versions info file (${destFile.name}) does not exist from a previous build and cannot be downloaded (due to --offline switch).\n"
-                                           + "After running 'clean', build must be executed once online before going offline")
+                    + "After running 'clean', build must be executed once online before going offline")
             }
             LOGGER.warn("Versions information will not be downloaded because --offline switch is used.\n"
-                    + "Without the version information certain integration tests may fail or use outdated version details.")
+                + "Without the version information certain integration tests may fail or use outdated version details.")
             return
         }
         if (destFile.isFile() && destFile.lastModified() > System.currentTimeMillis() - MILLIS_PER_DAY) {
@@ -58,32 +64,82 @@ class ReleasedVersions {
             json = new URL(url).text
         } catch (UnknownHostException e) {
             throw new GradleException("Unable to acquire versions info. I've tried this url: '$url'.\n"
-                    + "If you don't have the network connection please run with '--offline' or exclude this task from execution via '-x'."
-                    , e)
+                + "If you don't have the network connection please run with '--offline' or exclude this task from execution via '-x'."
+                , e)
+        } catch (IOException e) {
+            traceRoute(new URL(url))
+            throw e
         }
-
         destFile.parentFile.mkdirs()
         destFile.text = json
 
         LOGGER.info "Saved released versions information in: $destFile"
     }
 
+    static void traceRoute(URL location) {
+        LOGGER.lifecycle("Beginning traceroute to ${location.getHost()}")
+        def standardOut = new StringBuffer(), standardErr = new StringBuffer()
+        String command
+        if (org.gradle.internal.os.OperatingSystem.current().windows) {
+            command = "tracert ${location.getHost()}"
+        } else {
+            command = "traceroute ${location.getHost()}"
+        }
+        def proc = command.execute()
+        proc.consumeProcessOutput(standardOut, standardErr)
+        proc.waitFor()
+        LOGGER.lifecycle("Route trace to ${location.getHost()}")
+        LOGGER.lifecycle("""out:
+$standardOut
+err:
+$standardErr""")
+    }
+
     String getMostRecentFinalRelease() {
         return versions.findAll { it.rcFor == "" }.first().version.version
+    }
+
+    String getMostRecentSnapshot() {
+        return snapshots.first().version.version
     }
 
     List<String> getAllVersions() {
         return versions*.version*.version
     }
 
-    List<Map<String, ?>> calculateVersions() {
+    List<String> getTestedVersions() {
+        return testedVersions*.version*.version
+    }
+
+    List<String> getAllSnapshots() {
+        return snapshots*.version*.version
+    }
+
+    private static boolean isActiveVersion(def version) {
+        // Ignore broken or snapshot versions
+        if (version.broken == true || version.snapshot == true) {
+            return false
+        }
+        // Include only active RCs
+        if (version.rcFor != "") {
+            return version.activeRc
+        }
+        // Include only active milestones
+        if (version.milestoneFor != "") {
+            return version.version != "3.0-milestone-1" // TODO: should be publishing an 'activeMilestone' property
+        }
+        // Include all other versions
+        return true
+    }
+
+    List<Map<String, ?>> calculateVersions(def startingAt = lowestInterestingVersion) {
         def versions = new groovy.json.JsonSlurper().parseText(destFile.text).findAll {
-            (it.activeRc == true || it.rcFor == "") && it.broken == false && it.snapshot == false
+            isActiveVersion(it)
         }.collect {
             it.version = GradleVersion.version(it.version)
             it
         }.findAll {
-            it.version >= lowestInterestingVersion
+            it.version >= startingAt && it.version <= currentVersion
         }.sort {
             it.version
         }.reverse()
@@ -93,5 +149,24 @@ class ReleasedVersions {
         }
 
         return versions
+    }
+
+    List<Map<String, ?>> calculateSnapshots() {
+        def snapshots = new groovy.json.JsonSlurper().parseText(destFile.text).findAll {
+            (it.snapshot == true || it.nightly == true) && it.broken == false
+        }.collect {
+            it.version = GradleVersion.version(it.version)
+            it
+        }.findAll {
+            it.version >= lowestInterestingVersion
+        }.sort {
+            it.version
+        }.reverse()
+
+        if (snapshots.size() < 1) {
+            throw new IllegalStateException("Too few snapshots found in ${destFile}: " + versions)
+        }
+
+        return snapshots
     }
 }

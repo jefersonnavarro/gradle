@@ -25,9 +25,6 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
     def "rule method can define a managed model element backed by an interface"() {
         when:
         buildScript '''
-            import org.gradle.model.*
-            import org.gradle.model.collection.*
-
             @Managed
             interface Person {
                 String getName()
@@ -53,11 +50,14 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
 
                 @Model
                 void someone(Person person, Names names) {
+                    assert person == person
+                    assert person.name == null
+
                     person.name = names.name
                 }
 
                 @Mutate
-                void addEchoTask(CollectionBuilder<Task> tasks, Person person) {
+                void addEchoTask(ModelMap<Task> tasks, Person person) {
                     tasks.create("echo") {
                         it.doLast {
                             println "person: $person"
@@ -78,12 +78,47 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
         output.contains("name: foo")
     }
 
+    def "can view a managed element as ModelElement"() {
+        when:
+        buildScript '''
+            @Managed
+            interface Person {
+                String getName()
+                void setName(String name)
+            }
+
+            class RulePlugin extends RuleSource {
+                @Model
+                void someone(Person person) {
+                }
+
+                @Mutate
+                void addEchoTask(ModelMap<Task> tasks, @Path("someone") ModelElement person) {
+                    tasks.create("echo") {
+                        it.doLast {
+                            println "person: $person"
+                            println "name: $person.name"
+                            println "display-name: $person.displayName"
+                        }
+                    }
+                }
+            }
+
+            apply type: RulePlugin
+        '''
+
+        then:
+        succeeds "echo"
+
+        and:
+        output.contains("person: Person 'someone'")
+        output.contains("name: someone")
+        output.contains("display-name: Person 'someone'")
+    }
+
     def "rule method can apply defaults to a managed model element"() {
         when:
         buildScript '''
-            import org.gradle.model.*
-            import org.gradle.model.collection.*
-
             @Managed
             interface Person {
                 String getName()
@@ -121,7 +156,7 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
                 }
 
                 @Mutate
-                void addEchoTask(CollectionBuilder<Task> tasks, Person person) {
+                void addEchoTask(ModelMap<Task> tasks, Person person) {
                     tasks.create("echo") {
                         it.doLast {
                             println "name: $person.name"
@@ -146,7 +181,6 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
         file('buildSrc/src/main/java/Rules.java') << '''
             import org.gradle.api.*;
             import org.gradle.model.*;
-            import org.gradle.model.collection.*;
 
             @Managed
             interface Person {
@@ -168,7 +202,7 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
                 }
 
                 @Mutate
-                void addPersonTask(CollectionBuilder<Task> tasks, Person person) {
+                void addPersonTask(ModelMap<Task> tasks, Person person) {
                     tasks.create("echo", task -> {
                         task.doLast(unused -> {
                             System.out.println(String.format("name: %s", person.getName()));
@@ -195,7 +229,6 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
         file('buildSrc/src/main/java/Rules.java') << '''
             import org.gradle.api.*;
             import org.gradle.model.*;
-            import org.gradle.model.collection.*;
 
             @Managed
             interface Person {
@@ -214,7 +247,7 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
                 }
 
                 @Mutate
-                void addPersonTask(CollectionBuilder<Task> tasks, Person person) {
+                void addPersonTask(ModelMap<Task> tasks, Person person) {
                     tasks.create("accessGenerativeName", task -> {
                         task.doLast(unused -> {
                             person.getName();
@@ -241,7 +274,6 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
         file('buildSrc/src/main/java/Rules.java') << '''
             import org.gradle.api.*;
             import org.gradle.model.*;
-            import org.gradle.model.collection.*;
 
             @Managed
             interface Person {
@@ -256,7 +288,7 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
                 }
 
                 @Mutate
-                void linkPersonToTasks(CollectionBuilder<Task> tasks, Person person) {
+                void linkPersonToTasks(ModelMap<Task> tasks, Person person) {
                 }
             }
         '''
@@ -269,7 +301,8 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
         fails "tasks"
 
         and:
-        failure.assertHasCause("Invalid managed model type Person: non-abstract setters are not allowed (invalid method: void Person#setName(java.lang.String))")
+        failure.assertHasCause """Type Person is not a valid managed type:
+- Property 'name' is not valid: it must have either only abstract accessor methods or only implemented accessor methods"""
     }
 
     @Requires(TestPrecondition.JDK8_OR_LATER)
@@ -278,7 +311,6 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
         file('buildSrc/src/main/java/Rules.java') << '''
             import org.gradle.api.*;
             import org.gradle.model.*;
-            import org.gradle.model.collection.*;
 
             @Managed
             interface Person {
@@ -292,7 +324,7 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
                 }
 
                 @Mutate
-                void linkPersonToTasks(CollectionBuilder<Task> tasks, Person person) {
+                void linkPersonToTasks(ModelMap<Task> tasks, Person person) {
                 }
             }
         '''
@@ -305,6 +337,80 @@ class InterfaceBackedManagedTypeIntegrationTest extends AbstractIntegrationSpec 
         fails "tasks"
 
         and:
-        failure.assertHasCause("Invalid managed model type Person: only paired getter/setter methods are supported (invalid methods: void Person#foo())")
+        failure.assertHasCause """Type Person is not a valid managed type:
+- Method foo() is not a valid method: Default interface methods are only supported for getters and setters."""
     }
+
+    def "two views of the same element are equal"() {
+        when:
+        buildScript '''
+            @Managed
+            interface Address {
+                String getCity()
+                void setCity(String name)
+            }
+
+            @Managed
+            interface Person {
+                String getName()
+                void setName(String name)
+                Address getAddress()
+                Address getPostalAddress()
+                void setPostalAddress(Address a)
+            }
+
+            class RulePlugin extends RuleSource {
+                @Model
+                void someone(Person person) {
+                    person.postalAddress = person.address
+                }
+
+                @Mutate
+                void tasks(ModelMap<Task> tasks, Person p1, Person p2) {
+                    assert p1 == p2
+                    assert p1.address == p2.address
+                    assert p1.postalAddress == p2.postalAddress
+                    assert p1.postalAddress == p1.address
+                }
+            }
+
+            apply type: RulePlugin
+        '''
+
+        then:
+        succeeds "help"
+    }
+
+    def "reports managed interface type in missing property error message"() {
+        when:
+        buildScript '''
+            @Managed
+            interface Person {
+                String getName()
+                void setName(String name)
+            }
+
+            class RulePlugin extends RuleSource {
+                @Model
+                void someone(Person person) {
+                }
+
+                @Mutate
+                void tasks(ModelMap<Task> tasks, Person person) {
+                    println person.unknown
+                }
+            }
+
+            apply type: RulePlugin
+        '''
+
+        then:
+        fails "help"
+
+        and:
+        failure.assertHasFileName("Build file '$buildFile'")
+        failure.assertHasLineNumber(15)
+        failure.assertHasCause("No such property: unknown for class: Person")
+    }
+
 }

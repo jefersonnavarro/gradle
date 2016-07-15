@@ -15,8 +15,9 @@
  */
 package org.gradle.launcher.daemon.server;
 
-import org.gradle.messaging.remote.internal.Connection;
+import org.gradle.launcher.daemon.protocol.Message;
+import org.gradle.internal.remote.internal.RemoteConnection;
 
 public interface IncomingConnectionHandler {
-    void handle(Connection<Object> connection);
+    void handle(RemoteConnection<Message> connection);
 }

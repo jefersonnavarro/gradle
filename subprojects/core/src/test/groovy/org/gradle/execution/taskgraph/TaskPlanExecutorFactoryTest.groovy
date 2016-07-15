@@ -14,20 +14,21 @@
  * limitations under the License.
  */
 
-package org.gradle.execution.taskgraph;
-
+package org.gradle.execution.taskgraph
 
 import org.gradle.api.internal.changedetection.state.TaskArtifactStateCacheAccess
 import org.gradle.internal.concurrent.ExecutorFactory
+import org.gradle.internal.operations.BuildOperationWorkerRegistry
 import spock.lang.Specification
 
 public class TaskPlanExecutorFactoryTest extends Specification {
     final TaskArtifactStateCacheAccess cache = Mock()
     final ExecutorFactory executorFactory = Mock()
+    final BuildOperationWorkerRegistry buildOperationWorkerRegistry = Mock()
 
     def "creates a default executor"() {
         when:
-        def factory = new TaskPlanExecutorFactory(0, executorFactory)
+        def factory = new TaskPlanExecutorFactory(1, executorFactory, buildOperationWorkerRegistry)
 
         then:
         factory.create().class == DefaultTaskPlanExecutor
@@ -35,12 +36,9 @@ public class TaskPlanExecutorFactoryTest extends Specification {
 
     def "creates a parallel executor"() {
         when:
-        def factory = new TaskPlanExecutorFactory(parallelExecuterCount, executorFactory)
+        def factory = new TaskPlanExecutorFactory(3, executorFactory, buildOperationWorkerRegistry)
 
         then:
         factory.create().class == ParallelTaskPlanExecutor
-
-        where:
-        parallelExecuterCount << [-1, 1, 3]
     }
 }

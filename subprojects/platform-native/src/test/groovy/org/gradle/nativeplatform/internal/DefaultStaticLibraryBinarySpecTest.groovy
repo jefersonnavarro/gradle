@@ -19,18 +19,18 @@ package org.gradle.nativeplatform.internal
 import org.gradle.api.Task
 import org.gradle.api.file.FileCollection
 import org.gradle.api.file.SourceDirectorySet
-import org.gradle.internal.reflect.DirectInstantiator
-import org.gradle.language.base.ProjectSourceSet
-import org.gradle.language.base.internal.DefaultFunctionalSourceSet
+import org.gradle.api.internal.project.taskfactory.ITaskFactory
 import org.gradle.language.nativeplatform.HeaderExportingSourceSet
 import org.gradle.nativeplatform.BuildType
+import org.gradle.nativeplatform.NativeLibrarySpec
+import org.gradle.nativeplatform.StaticLibraryBinarySpec
 import org.gradle.nativeplatform.internal.resolve.NativeDependencyResolver
 import org.gradle.nativeplatform.platform.NativePlatform
 import org.gradle.nativeplatform.tasks.CreateStaticLibrary
 import org.gradle.nativeplatform.toolchain.internal.NativeToolChainInternal
-import org.gradle.nativeplatform.toolchain.internal.PlatformToolProvider
-import org.gradle.platform.base.component.BaseComponentSpec
+import org.gradle.platform.base.component.BaseComponentFixtures
 import org.gradle.platform.base.internal.DefaultBinaryNamingScheme
+import org.gradle.platform.base.internal.DefaultBinaryTasksCollection
 import org.gradle.platform.base.internal.DefaultComponentSpecIdentifier
 import org.gradle.test.fixtures.file.TestFile
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
@@ -38,27 +38,26 @@ import org.gradle.util.TestUtil
 import org.junit.Rule
 import spock.lang.Specification
 
-import static org.gradle.nativeplatform.internal.configure.DefaultNativeBinariesFactory.create
-
 class DefaultStaticLibraryBinarySpecTest extends Specification {
-    @Rule TestNameTestDirectoryProvider tmpDir
-    def instantiator = new DirectInstantiator()
-    final library = BaseComponentSpec.create(DefaultNativeLibrarySpec, new DefaultComponentSpecIdentifier("path", "libName"), new DefaultFunctionalSourceSet("name", instantiator, Stub(ProjectSourceSet)), instantiator)
-    def namingScheme = new DefaultBinaryNamingScheme("main", "staticLibrary", [])
+    @Rule
+    TestNameTestDirectoryProvider tmpDir
+    final library = BaseComponentFixtures.createNode(NativeLibrarySpec, DefaultNativeLibrarySpec, new DefaultComponentSpecIdentifier("path", "libName"))
+    def namingScheme = DefaultBinaryNamingScheme.component("main").withBinaryType("staticLibrary")
     def toolChain = Stub(NativeToolChainInternal)
     def platform = Stub(NativePlatform)
     def buildType = Stub(BuildType)
     final resolver = Stub(NativeDependencyResolver)
     final outputFile = Mock(File)
-    def tasks = new DefaultStaticLibraryBinarySpec.DefaultTasksCollection()
+    def tasks = new DefaultStaticLibraryBinarySpec.DefaultTasksCollection(new DefaultBinaryTasksCollection(null, Mock(ITaskFactory)))
 
-    def "has useful string representation"() {  
+    def "has useful string representation"() {
         expect:
         staticLibrary.toString() == "static library 'main:staticLibrary'"
     }
 
     def getStaticLibrary() {
-        create(DefaultStaticLibraryBinarySpec, instantiator, library, namingScheme, resolver, toolChain, Stub(PlatformToolProvider), platform, buildType, new DefaultFlavor("flavorOne"))
+        TestNativeBinariesFactory.create(StaticLibraryBinarySpec, DefaultStaticLibraryBinarySpec, "test", Mock(ITaskFactory), library, namingScheme, resolver, platform,
+            buildType, new DefaultFlavor("flavorOne"))
     }
 
     def "can set output file"() {
@@ -89,16 +88,18 @@ class DefaultStaticLibraryBinarySpecTest extends Specification {
 
         expect:
         binary.headerDirs.files == [headerDir] as Set
+        binary.headerDirs.toString() == "Headers for static library 'main:staticLibrary'"
         binary.staticLibraryFile == outputFile
 
         and:
         binary.linkFiles.files == [binary.staticLibraryFile] as Set
         binary.linkFiles.buildDependencies.getDependencies(Stub(Task)) == [lifecycleTask] as Set
-        binary.linkFiles.toString() == "static library 'main:staticLibrary'"
+        binary.linkFiles.toString() == "Link files for static library 'main:staticLibrary'"
 
         and:
         binary.runtimeFiles.files.isEmpty()
         binary.runtimeFiles.buildDependencies.getDependencies(Stub(Task)) == [] as Set
+        binary.runtimeFiles.toString() == "Runtime files for static library 'main:staticLibrary'"
     }
 
     def "includes additional link files in native dependency"() {
@@ -127,14 +128,14 @@ class DefaultStaticLibraryBinarySpecTest extends Specification {
 
     def "returns create task when defined"() {
         when:
-        final createTask = TestUtil.createTask(CreateStaticLibrary)
+        final createTask = TestUtil.create(tmpDir).task(CreateStaticLibrary)
         tasks.add(createTask)
 
         then:
         tasks.createStaticLib == createTask
     }
 
-    private TestFile addSources(DefaultStaticLibraryBinarySpec binary, def headerDir) {
+    private TestFile addSources(StaticLibraryBinarySpec binary, def headerDir) {
         def headerDirSet = Stub(SourceDirectorySet) {
             getSrcDirs() >> [headerDir]
         }
@@ -142,10 +143,10 @@ class DefaultStaticLibraryBinarySpecTest extends Specification {
             getFiles() >> [tmpDir.createFile("input.src")]
         }
         def sourceSet = Stub(HeaderExportingSourceSet) {
-            getSource() >> sourceDirSet
+            getSources() >> sourceDirSet
             getExportedHeaders() >> headerDirSet
         }
-        binary.source sourceSet
+        binary.inputs.add sourceSet
         headerDir
     }
 }

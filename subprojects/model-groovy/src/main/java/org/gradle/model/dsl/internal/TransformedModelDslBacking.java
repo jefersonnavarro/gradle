@@ -16,76 +16,66 @@
 
 package org.gradle.model.dsl.internal;
 
-import com.google.common.collect.Lists;
 import groovy.lang.Closure;
 import net.jcip.annotations.ThreadSafe;
-import org.gradle.api.Transformer;
-import org.gradle.model.dsl.internal.transform.RuleMetadata;
+import org.gradle.api.Action;
+import org.gradle.internal.file.RelativeFilePathResolver;
+import org.gradle.model.InvalidModelRuleDeclarationException;
+import org.gradle.model.dsl.internal.transform.ClosureBackedRuleFactory;
 import org.gradle.model.dsl.internal.transform.RulesBlock;
-import org.gradle.model.dsl.internal.transform.SourceLocation;
-import org.gradle.model.internal.core.ModelPath;
-import org.gradle.model.internal.core.ModelReference;
-import org.gradle.model.internal.core.ModelActionRole;
+import org.gradle.model.internal.core.*;
+import org.gradle.model.internal.core.rule.describe.ModelRuleDescriptor;
 import org.gradle.model.internal.registry.ModelRegistry;
+import org.gradle.model.internal.type.ModelType;
 
-import java.util.List;
+import static org.gradle.model.internal.core.DefaultNodeInitializerRegistry.DEFAULT_REFERENCE;
+import static org.gradle.model.internal.core.NodeInitializerContext.forType;
 
 @ThreadSafe
 public class TransformedModelDslBacking {
-
-    private static final Transformer<List<ModelReference<?>>, Closure<?>> INPUT_PATHS_EXTRACTOR = new Transformer<List<ModelReference<?>>, Closure<?>>() {
-        public List<ModelReference<?>> transform(Closure<?> closure) {
-            RuleMetadata ruleMetadata = getRuleMetadata(closure);
-            String[] paths = ruleMetadata.inputPaths();
-            List<ModelReference<?>> references = Lists.newArrayListWithCapacity(paths.length);
-            for (int i = 0; i < paths.length; i++) {
-                String description = String.format("@ line %d", ruleMetadata.inputLineNumbers()[i]);
-                references.add(ModelReference.untyped(ModelPath.path(paths[i]), description));
-            }
-            return references;
-        }
-    };
-
-    private static final Transformer<SourceLocation, Closure<?>> RULE_LOCATION_EXTRACTOR = new Transformer<SourceLocation, Closure<?>>() {
-        public SourceLocation transform(Closure<?> closure) {
-            RuleMetadata ruleMetadata = getRuleMetadata(closure);
-            return new SourceLocation(ruleMetadata.scriptSourceDescription(), ruleMetadata.lineNumber(), ruleMetadata.columnNumber());
-        }
-    };
-
     private final ModelRegistry modelRegistry;
-    private final Object thisObject;
-    private final Object owner;
-    private final Transformer<? extends List<ModelReference<?>>, ? super Closure<?>> inputPathsExtractor;
-    private final Transformer<SourceLocation, ? super Closure<?>> ruleLocationExtractor;
+    private final ClosureBackedRuleFactory ruleFactory;
 
-    public TransformedModelDslBacking(ModelRegistry modelRegistry, Object thisObject, Object owner) {
-        this(modelRegistry, thisObject, owner, INPUT_PATHS_EXTRACTOR, RULE_LOCATION_EXTRACTOR);
-    }
-
-    TransformedModelDslBacking(ModelRegistry modelRegistry, Object thisObject, Object owner, Transformer<? extends List<ModelReference<?>>, ? super Closure<?>> inputPathsExtractor,
-                               Transformer<SourceLocation, ? super Closure<?>> ruleLocationExtractor) {
+    public TransformedModelDslBacking(ModelRegistry modelRegistry, RelativeFilePathResolver relativeFilePathResolver) {
         this.modelRegistry = modelRegistry;
-        this.thisObject = thisObject;
-        this.owner = owner;
-        this.inputPathsExtractor = inputPathsExtractor;
-        this.ruleLocationExtractor = ruleLocationExtractor;
+        this.ruleFactory = new ClosureBackedRuleFactory(relativeFilePathResolver);
     }
 
-    public void configure(String modelPathString, Closure<?> configuration) {
-        List<ModelReference<?>> references = inputPathsExtractor.transform(configuration);
-        SourceLocation sourceLocation = ruleLocationExtractor.transform(configuration);
+    /**
+     * Invoked by transformed DSL configuration rules
+     */
+    public void configure(String modelPathString, Closure<?> closure) {
         ModelPath modelPath = ModelPath.path(modelPathString);
-        Closure<?> reownered = configuration.rehydrate(null, owner, thisObject);
-        modelRegistry.apply(ModelActionRole.Mutate, new ClosureBackedModelAction(reownered, references, modelPath, sourceLocation), ModelPath.ROOT);
+        DeferredModelAction modelAction = ruleFactory.toAction(Object.class, closure);
+        registerAction(modelPath, ModelType.UNTYPED, ModelActionRole.Mutate, modelAction);
     }
 
-    private static RuleMetadata getRuleMetadata(Closure<?> closure) {
-        RuleMetadata ruleMetadata = closure.getClass().getAnnotation(RuleMetadata.class);
-        if (ruleMetadata == null) {
-            throw new IllegalStateException(String.format("Expected %s annotation to be used on the argument closure.", RuleMetadata.class.getName()));
+    /**
+     * Invoked by transformed DSL creation rules
+     */
+    public <T> void create(String modelPathString, Class<T> type, Closure<?> closure) {
+        ModelPath modelPath = ModelPath.path(modelPathString);
+        DeferredModelAction modelAction = ruleFactory.toAction(type, closure);
+        ModelRuleDescriptor descriptor = modelAction.getDescriptor();
+        ModelType<T> modelType = ModelType.of(type);
+        try {
+            NodeInitializerRegistry nodeInitializerRegistry = modelRegistry.realize(DEFAULT_REFERENCE.getPath(), DEFAULT_REFERENCE.getType());
+            NodeInitializer nodeInitializer = nodeInitializerRegistry.getNodeInitializer(forType(modelType));
+            modelRegistry.register(ModelRegistrations.of(modelPath, nodeInitializer).descriptor(descriptor).build());
+        } catch (ModelTypeInitializationException e) {
+            throw new InvalidModelRuleDeclarationException(descriptor, e);
         }
-        return ruleMetadata;
+        registerAction(modelPath, modelType, ModelActionRole.Initialize, modelAction);
+    }
+
+    private <T> void registerAction(ModelPath modelPath, ModelType<T> viewType, final ModelActionRole role, final DeferredModelAction action) {
+        ModelReference<T> reference = ModelReference.of(modelPath, viewType);
+        modelRegistry.configure(ModelActionRole.Initialize, DirectNodeNoInputsModelAction.of(reference, action.getDescriptor(), new Action<MutableModelNode>() {
+            @Override
+            public void execute(MutableModelNode node) {
+                action.execute(node, role);
+            }
+        }));
     }
 
     public static boolean isTransformedBlock(Closure<?> closure) {

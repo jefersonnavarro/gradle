@@ -16,9 +16,9 @@
 package org.gradle.nativeplatform
 
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
+import org.gradle.nativeplatform.fixtures.NativePlatformsTestFixture
 import org.gradle.nativeplatform.fixtures.app.ExeWithLibraryUsingLibraryHelloWorldApp
 import org.gradle.nativeplatform.fixtures.app.HelloWorldApp
-import org.gradle.nativeplatform.platform.internal.NativePlatforms
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
 
@@ -68,16 +68,18 @@ model {
     def "can configure components for a single flavor"() {
         given:
         buildFile << """
-binaries.all {
-    if (flavor == flavors.french) {
-        cppCompiler.define "FRENCH"
-    }
-}
 model {
+    binaries {
+        all {
+            if (flavor == flavors.french) {
+                cppCompiler.define "FRENCH"
+            }
+        }
+    }
     components {
-        main.targetFlavors "french"
-        hello.targetFlavors "french"
-        greetings.targetFlavors "french"
+        main { targetFlavors "french" }
+        hello { targetFlavors "french" }
+        greetings { targetFlavors "french" }
     }
 }
 """
@@ -85,17 +87,17 @@ model {
         succeeds "installMainExecutable"
 
         then:
-        installation("build/install/mainExecutable").exec().out == FRENCH + " " + FRENCH
+        installation("build/install/main").exec().out == FRENCH + " " + FRENCH
     }
 
     def "builds executable for each defined flavor when not configured for component"() {
         when:
-        succeeds "installEnglishMainExecutable", "installFrenchMainExecutable", "installGermanMainExecutable"
+        succeeds "installMainEnglishExecutable", "installMainFrenchExecutable", "installMainGermanExecutable"
 
         then:
-        installation("build/install/mainExecutable/english").assertInstalled()
-        installation("build/install/mainExecutable/french").assertInstalled()
-        installation("build/install/mainExecutable/german").assertInstalled()
+        installation("build/install/main/english").assertInstalled()
+        installation("build/install/main/french").assertInstalled()
+        installation("build/install/main/german").assertInstalled()
     }
 
     def "executable with flavors depends on library with matching flavors"() {
@@ -124,11 +126,11 @@ model {
 """
 
         and:
-        succeeds "installEnglishMainExecutable", "installFrenchMainExecutable"
+        succeeds "installMainEnglishExecutable", "installMainFrenchExecutable"
 
         then:
-        installation("build/install/mainExecutable/english").exec().out == DEFAULT + " " + DEFAULT
-        installation("build/install/mainExecutable/french").exec().out == FRENCH + " " + FRENCH
+        installation("build/install/main/english").exec().out == DEFAULT + " " + DEFAULT
+        installation("build/install/main/french").exec().out == FRENCH + " " + FRENCH
     }
 
     def "build fails when library has no matching flavour"() {
@@ -151,8 +153,8 @@ model {
 """
 
         then:
-        fails "germanMainExecutable"
-        failure.assertHasDescription("No shared library binary available for library 'hello' with [flavor: 'german', platform: '${NativePlatforms.defaultPlatformName}', buildType: 'debug']")
+        fails "mainGermanExecutable"
+        failure.assertHasDescription("No shared library binary available for library 'hello' with [flavor: 'german', platform: '${NativePlatformsTestFixture.defaultPlatformName}', buildType: 'debug']")
     }
 
     def "fails with reasonable error message when trying to target an unknown flavor"() {
@@ -160,7 +162,7 @@ model {
         buildFile << """
 model {
     components {
-        main.targetFlavors "unknown"
+        main { targetFlavors "unknown" }
     }
 }
 """
@@ -169,7 +171,7 @@ model {
         fails "mainExecutable"
 
         then:
-        failure.assertHasCause("Exception thrown while executing model rule: org.gradle.nativeplatform.plugins.NativeComponentModelPlugin\$Rules#createNativeBinaries")
+        failure.assertHasCause("Exception thrown while executing model rule: NativeComponentModelPlugin.Rules#createBinaries")
         failure.assertHasCause("Invalid Flavor: 'unknown'")
     }
 }

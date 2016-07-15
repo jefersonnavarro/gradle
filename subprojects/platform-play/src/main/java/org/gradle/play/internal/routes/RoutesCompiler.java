@@ -25,7 +25,6 @@ import org.gradle.scala.internal.reflect.ScalaMethod;
 import java.io.File;
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.List;
 
 public class RoutesCompiler implements Compiler<RoutesCompileSpec>, Serializable {
     private final VersionedRoutesCompilerAdapter adapter;
@@ -34,6 +33,7 @@ public class RoutesCompiler implements Compiler<RoutesCompileSpec>, Serializable
         this.adapter = adapter;
     }
 
+    @Override
     public WorkResult execute(RoutesCompileSpec spec) {
         boolean didWork = false;
         // Need to compile all secondary routes ("Foo.routes") before primary ("routes")
@@ -67,7 +67,7 @@ public class RoutesCompiler implements Compiler<RoutesCompileSpec>, Serializable
         try {
             ClassLoader cl = getClass().getClassLoader();
             ScalaMethod compile = adapter.getCompileMethod(cl);
-            Object ret = compile.invoke(adapter.createCompileParameters(cl, sourceFile, spec.getDestinationDir(), spec.isJavaProject()));
+            Object ret = compile.invoke(adapter.createCompileParameters(cl, sourceFile, spec.getDestinationDir(), spec.isJavaProject(), spec.isNamespaceReverseRouter(), spec.isGenerateReverseRoutes(), spec.isInjectedRoutesGenerator(), spec.getAdditionalImports()));
             if (ret != null && ret instanceof Boolean) {
                 return (Boolean) ret;
             } else {
@@ -82,7 +82,7 @@ public class RoutesCompiler implements Compiler<RoutesCompileSpec>, Serializable
         return adapter.getDependencyNotation();
     }
 
-    public List<String> getClassLoaderPackages() {
+    public Iterable<String> getClassLoaderPackages() {
         return adapter.getClassLoaderPackages();
     }
 }

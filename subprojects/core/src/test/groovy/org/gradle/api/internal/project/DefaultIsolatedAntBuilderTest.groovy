@@ -15,7 +15,6 @@
  */
 package org.gradle.api.internal.project
 
-import ch.qos.logback.classic.Level
 import org.apache.tools.ant.Project
 import org.apache.tools.ant.taskdefs.ConditionTask
 import org.gradle.api.GradleException
@@ -24,10 +23,14 @@ import org.gradle.api.internal.DefaultClassPathProvider
 import org.gradle.api.internal.DefaultClassPathRegistry
 import org.gradle.api.internal.classpath.DefaultModuleRegistry
 import org.gradle.api.internal.classpath.ModuleRegistry
+import org.gradle.api.internal.project.antbuilder.DefaultIsolatedAntBuilder
+import org.gradle.api.logging.LogLevel
 import org.gradle.internal.classloader.ClasspathUtil
 import org.gradle.internal.classloader.DefaultClassLoaderFactory
-import org.gradle.logging.ConfigureLogging
-import org.gradle.logging.TestAppender
+import org.gradle.internal.installation.CurrentGradleInstallation
+import org.gradle.internal.logging.ConfigureLogging
+import org.gradle.internal.logging.TestOutputEventListener
+import org.junit.After
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -37,18 +40,23 @@ import static org.junit.Assert.assertThat
 import static org.junit.Assert.fail
 
 class DefaultIsolatedAntBuilderTest {
-    private final ModuleRegistry moduleRegistry = new DefaultModuleRegistry()
+    private final ModuleRegistry moduleRegistry = new DefaultModuleRegistry(CurrentGradleInstallation.get())
     private final ClassPathRegistry registry = new DefaultClassPathRegistry(new DefaultClassPathProvider(moduleRegistry))
-    private final DefaultIsolatedAntBuilder builder = new DefaultIsolatedAntBuilder(registry, new DefaultClassLoaderFactory())
-    private final TestAppender appender = new TestAppender()
+    private final DefaultIsolatedAntBuilder builder = new DefaultIsolatedAntBuilder(registry, new DefaultClassLoaderFactory(), moduleRegistry)
+    private final TestOutputEventListener outputEventListener = new TestOutputEventListener()
     @Rule
-    public final ConfigureLogging logging = new ConfigureLogging(appender)
+    public final ConfigureLogging logging = new ConfigureLogging(outputEventListener)
     private Collection<File> classpath
 
     @Before
     public void attachAppender() {
-        classpath = registry.getClassPath("GROOVY").asFiles
-        logging.setLevel(Level.INFO);
+        classpath = moduleRegistry.getExternalModule("groovy-all").getClasspath().asFiles
+        logging.setLevel(LogLevel.INFO)
+    }
+
+    @After
+    public void cleanup() {
+        builder.stop()
     }
 
     @Test
@@ -85,7 +93,7 @@ class DefaultIsolatedAntBuilderTest {
             echo('${message}')
         }
 
-        assertThat(appender.toString(), equalTo('[WARN [ant:echo] a message]'))
+        assertThat(outputEventListener.toString(), equalTo('[WARN [ant:echo] a message]'))
     }
 
     @Test
@@ -97,9 +105,9 @@ class DefaultIsolatedAntBuilderTest {
             loggingTask()
         }
 
-        assertThat(appender.toString(), containsString('[INFO a jcl log message]'))
-        assertThat(appender.toString(), containsString('[INFO an slf4j log message]'))
-        assertThat(appender.toString(), containsString('[INFO a log4j log message]'))
+        assertThat(outputEventListener.toString(), containsString('[INFO a jcl log message]'))
+        assertThat(outputEventListener.toString(), containsString('[INFO an slf4j log message]'))
+        assertThat(outputEventListener.toString(), containsString('[INFO a log4j log message]'))
     }
 
     @Test
@@ -126,14 +134,15 @@ class DefaultIsolatedAntBuilderTest {
     @Test
     public void reusesClassloaderForImplementation() {
         ClassLoader loader1 = null
+        ClassLoader loader2 = null
         def classpath = [new File("no-existo.jar")]
         builder.withClasspath(classpath).execute {
             loader1 = delegate.antlibClassLoader
+            owner.builder.withClasspath(classpath).execute {
+                loader2 = delegate.antlibClassLoader
+            }
         }
-        ClassLoader loader2 = null
-        builder.withClasspath(classpath).execute {
-            loader2 = delegate.antlibClassLoader
-        }
+
 
         assertThat(loader1, sameInstance(loader2))
 

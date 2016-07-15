@@ -35,10 +35,12 @@ import org.gradle.nativeplatform.toolchain.internal.tools.ToolSearchPath
 import org.gradle.platform.base.internal.toolchain.ToolSearchResult
 import org.gradle.process.internal.ExecActionFactory
 import org.gradle.util.TreeVisitor
+import org.gradle.util.UsesNativeServices
 import spock.lang.Specification
 
 import static org.gradle.nativeplatform.platform.internal.ArchitectureInternal.InstructionSet.X86
 
+@UsesNativeServices
 class AbstractGccCompatibleToolChainTest extends Specification {
     def fileResolver = Mock(FileResolver)
     def execActionFactory = Mock(ExecActionFactory)
@@ -56,7 +58,7 @@ class AbstractGccCompatibleToolChainTest extends Specification {
     def operatingSystem = Stub(OperatingSystem)
     def buildOperationProcessor = Stub(BuildOperationProcessor)
 
-    def instantiator = new DirectInstantiator()
+    def instantiator = DirectInstantiator.INSTANCE
     def toolChain = new TestNativeToolChain("test", buildOperationProcessor, operatingSystem, fileResolver, execActionFactory, toolSearchPath, metaDataProvider, instantiator)
     def platform = Stub(NativePlatformInternal)
 
@@ -179,37 +181,6 @@ class AbstractGccCompatibleToolChainTest extends Specification {
         assert platformActionApplied == 2
     }
 
-
-    def "selected toolChain uses objectfile suffix based on targetplatform"() {
-        def platform1 = Mock(NativePlatformInternal)
-        def platform2 = Mock(NativePlatformInternal)
-        platform1.getName() >> "platform1"
-        def platformOSWin = Mock(OperatingSystemInternal)
-        platformOSWin.isWindows() >> true
-        def platformOSNonWin = Mock(OperatingSystemInternal)
-        platformOSNonWin.isWindows() >> false
-        platform1.getOperatingSystem() >> platformOSWin
-        platform2.getOperatingSystem() >> platformOSNonWin
-        platform2.getName() >> "platform2"
-        toolSearchPath.locate(_, _) >> tool
-        metaDataProvider.getGccMetaData(_, _) >> correctCompiler
-
-        toolChain.target(platform1.getName())
-        toolChain.target(platform2.getName())
-
-        when:
-        PlatformToolProvider selected = toolChain.select(platform1)
-
-        then:
-        selected.outputFileSuffix == ".obj"
-
-        when:
-        selected = toolChain.select(platform2)
-
-        then:
-        selected.outputFileSuffix == ".o"
-    }
-
     def "supplies no additional arguments to target native binary for tool chain default"() {
         def action = Mock(Action)
 
@@ -253,14 +224,14 @@ class AbstractGccCompatibleToolChainTest extends Specification {
             argsFor(platformToolChain.cCompiler) == [compilerArg]
             argsFor(platformToolChain.objcCompiler) == [compilerArg]
             argsFor(platformToolChain.objcppCompiler) == [compilerArg]
-            argsFor(platformToolChain.assembler) == [assemblerArg]
+            argsFor(platformToolChain.assembler) == [compilerArg]
             argsFor(platformToolChain.staticLibArchiver) == []
         }
 
         where:
-        arch     | linkerArg | compilerArg | assemblerArg
-        "i386"   | "-m32"    | "-m32"      | "--32"
-        "x86_64" | "-m64"    | "-m64"      | "--64"
+        arch     | linkerArg | compilerArg
+        "i386"   | "-m32"    | "-m32"
+        "x86_64" | "-m64"    | "-m64"
     }
 
     def "supplies args for supported architecture for os x platforms"() {

@@ -22,21 +22,20 @@ import org.gradle.api.internal.artifacts.DependencyResolveContext
 import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.internal.tasks.TaskDependencyResolveContext
 import org.gradle.initialization.ProjectAccessListener
-import org.gradle.util.TestUtil
-import spock.lang.Specification
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
 import static org.gradle.api.internal.artifacts.dependencies.AbstractModuleDependencySpec.assertDeepCopy
 import static org.gradle.util.Matchers.strictlyEqual
 import static org.junit.Assert.assertThat
 
-class DefaultProjectDependencyTest extends Specification {
+class DefaultProjectDependencyTest extends AbstractProjectBuilderSpec {
 
-    ProjectInternal project = TestUtil.createRootProject()
     ProjectAccessListener listener = Mock()
 
-    private projectDependency = new DefaultProjectDependency(project, null, false)
+    private projectDependency
 
-    void setup() {
+    def setup() {
+        projectDependency = new DefaultProjectDependency(project, null, false)
         project.version = "1.2"
         project.group = "org.gradle"
     }
@@ -107,7 +106,7 @@ class DefaultProjectDependencyTest extends Specification {
         0 * _
     }
 
-    void "is Buildable"() {
+    void "is buildable"() {
         def context = Mock(TaskDependencyResolveContext)
 
         def conf = project.configurations.create('conf')
@@ -115,7 +114,7 @@ class DefaultProjectDependencyTest extends Specification {
         projectDependency = new DefaultProjectDependency(project, 'conf', listener, true)
 
         when:
-        projectDependency.buildDependencies.resolve(context)
+        projectDependency.buildDependencies.visitDependencies(context)
 
         then:
         1 * context.add(conf)
@@ -125,15 +124,30 @@ class DefaultProjectDependencyTest extends Specification {
     }
 
     void "does not build project dependencies if configured so"() {
-        def context = Mock(TaskDependencyResolveContext)
-        project.configurations.create('conf')
-        projectDependency = new DefaultProjectDependency(project, 'conf', listener, false)
+         def context = Mock(TaskDependencyResolveContext)
+         project.configurations.create('conf')
+         projectDependency = new DefaultProjectDependency(project, 'conf', listener, false)
+
+         when:
+         projectDependency.buildDependencies.visitDependencies(context)
+
+         then:
+         0 * _
+     }
+
+    void "is self resolving dependency"() {
+        def conf = project.configurations.create('conf')
+        def listener = Mock(ProjectAccessListener)
+        projectDependency = new DefaultProjectDependency(project, 'conf', listener, true)
 
         when:
-        projectDependency.buildDependencies.resolve(context)
+        def files = projectDependency.resolve()
 
         then:
         0 * _
+
+        and:
+        files == conf.allArtifacts.files as Set
     }
 
     void "knows when content is equal"() {

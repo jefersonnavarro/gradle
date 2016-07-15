@@ -15,20 +15,33 @@
  */
 package org.gradle.launcher.daemon.client;
 
+import com.google.common.base.Preconditions;
 import org.gradle.api.internal.specs.ExplainingSpec;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
+import org.gradle.api.specs.Spec;
+import org.gradle.internal.Pair;
 import org.gradle.internal.UncheckedException;
+import org.gradle.internal.logging.progress.ProgressLogger;
+import org.gradle.internal.logging.progress.ProgressLoggerFactory;
+import org.gradle.internal.remote.internal.ConnectException;
+import org.gradle.internal.remote.internal.OutgoingConnector;
+import org.gradle.internal.remote.internal.RemoteConnection;
+import org.gradle.internal.serialize.Serializers;
+import org.gradle.launcher.daemon.context.DaemonConnectDetails;
 import org.gradle.launcher.daemon.context.DaemonContext;
-import org.gradle.launcher.daemon.context.DaemonInstanceDetails;
 import org.gradle.launcher.daemon.diagnostics.DaemonStartupInfo;
 import org.gradle.launcher.daemon.logging.DaemonMessages;
+import org.gradle.launcher.daemon.protocol.DaemonMessageSerializer;
+import org.gradle.launcher.daemon.protocol.Message;
 import org.gradle.launcher.daemon.registry.DaemonInfo;
 import org.gradle.launcher.daemon.registry.DaemonRegistry;
-import org.gradle.messaging.remote.internal.ConnectException;
-import org.gradle.messaging.remote.internal.OutgoingConnector;
-import org.gradle.messaging.remote.internal.RemoteConnection;
+import org.gradle.launcher.daemon.registry.DaemonStopEvent;
+import org.gradle.util.CollectionUtils;
 
+import java.util.Collection;
+import java.util.Date;
+import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -40,12 +53,22 @@ public class DefaultDaemonConnector implements DaemonConnector {
     private final DaemonRegistry daemonRegistry;
     protected final OutgoingConnector connector;
     private final DaemonStarter daemonStarter;
+    private final DaemonStartListener startListener;
+    private final ProgressLoggerFactory progressLoggerFactory;
     private long connectTimeout = DefaultDaemonConnector.DEFAULT_CONNECT_TIMEOUT;
 
-    public DefaultDaemonConnector(DaemonRegistry daemonRegistry, OutgoingConnector connector, DaemonStarter daemonStarter) {
+    public DefaultDaemonConnector(DaemonRegistry daemonRegistry, OutgoingConnector connector, DaemonStarter daemonStarter, DaemonStartListener startListener, ProgressLoggerFactory progressLoggerFactory) {
+        Preconditions.checkNotNull(daemonRegistry);
+        Preconditions.checkNotNull(connector);
+        Preconditions.checkNotNull(daemonStarter);
+        Preconditions.checkNotNull(startListener);
+        Preconditions.checkNotNull(progressLoggerFactory);
+
         this.daemonRegistry = daemonRegistry;
         this.connector = connector;
         this.daemonStarter = daemonStarter;
+        this.startListener = startListener;
+        this.progressLoggerFactory = progressLoggerFactory;
     }
 
     public void setConnectTimeout(long connectTimeout) {
@@ -61,36 +84,73 @@ public class DefaultDaemonConnector implements DaemonConnector {
     }
 
     public DaemonClientConnection maybeConnect(ExplainingSpec<DaemonContext> constraint) {
-        return findConnection(daemonRegistry.getAll(), constraint);
+        return findConnection(getCompatibleDaemons(daemonRegistry.getAll(), constraint));
     }
 
-    public DaemonClientConnection maybeConnect(DaemonInstanceDetails daemon) {
+    public DaemonClientConnection maybeConnect(DaemonConnectDetails daemon) {
         try {
             return connectToDaemon(daemon, new CleanupOnStaleAddress(daemon, true));
         } catch (ConnectException e) {
             LOGGER.debug("Cannot connect to daemon {} due to {}. Ignoring.", daemon, e);
-            return null;
         }
+        return null;
     }
 
     public DaemonClientConnection connect(ExplainingSpec<DaemonContext> constraint) {
-        DaemonClientConnection connection = findConnection(daemonRegistry.getIdle(), constraint);
+        final Pair<Collection<DaemonInfo>, Collection<DaemonInfo>> idleBusy = partitionByIdleState(daemonRegistry.getAll());
+        final Collection<DaemonInfo> idleDaemons = idleBusy.getLeft();
+        final Collection<DaemonInfo> busyDaemons = idleBusy.getRight();
+
+        final List<DaemonInfo> compatibleIdleDaemons = getCompatibleDaemons(idleDaemons, constraint);
+        DaemonClientConnection connection = findConnection(compatibleIdleDaemons);
         if (connection != null) {
             return connection;
         }
 
+        // Remove the stop events we're about to display
+        final List<DaemonStopEvent> stopEvents = daemonRegistry.getStopEvents();
+        daemonRegistry.removeStopEvents(stopEvents);
+
+        // User likely doesn't care about daemons that stopped a long time ago
+        List<DaemonStopEvent> recentStopEvents = CollectionUtils.filter(stopEvents, new Spec<DaemonStopEvent>() {
+            public boolean isSatisfiedBy(DaemonStopEvent event) {
+                return event.occurredInLastHours(1);
+            }
+        });
+
+        for (DaemonStopEvent stopEvent : recentStopEvents) {
+            LOGGER.info("Previous Daemon stopped at " + stopEvent.getTimestamp() + " " + stopEvent.getReason());
+        }
+
+        LOGGER.lifecycle(DaemonStartupMessage.generate(busyDaemons.size(), idleDaemons.size(), recentStopEvents.size()));
+
         return startDaemon(constraint);
     }
 
-    private DaemonClientConnection findConnection(List<DaemonInfo> daemons, ExplainingSpec<DaemonContext> constraint) {
-        for (DaemonInfo daemon : daemons) {
-            if (!constraint.isSatisfiedBy(daemon.getContext())) {
-                LOGGER.debug("Found daemon {} however its context does not match the desired criteria.\n"
-                        + constraint.whyUnsatisfied(daemon.getContext()) + "\n"
-                        + "  Looking for a different daemon...", daemon);
-                continue;
+    private Pair<Collection<DaemonInfo>, Collection<DaemonInfo>> partitionByIdleState(final Collection<DaemonInfo> daemons) {
+        return CollectionUtils.partition(daemons, new Spec<DaemonInfo>() {
+            public boolean isSatisfiedBy(DaemonInfo daemonInfo) {
+                return daemonInfo.isIdle();
             }
+        });
+    }
 
+    private List<DaemonInfo> getCompatibleDaemons(Iterable<DaemonInfo> daemons, ExplainingSpec<DaemonContext> constraint) {
+        List<DaemonInfo> compatibleDaemons = new LinkedList<DaemonInfo>();
+        for (DaemonInfo daemon : daemons) {
+            if (constraint.isSatisfiedBy(daemon.getContext())) {
+                compatibleDaemons.add(daemon);
+            } else {
+                LOGGER.info("Found daemon {} however its context does not match the desired criteria.\n"
+                    + constraint.whyUnsatisfied(daemon.getContext()) + "\n"
+                    + "  Looking for a different daemon...", daemon);
+            }
+        }
+        return compatibleDaemons;
+    }
+
+    private DaemonClientConnection findConnection(List<DaemonInfo> compatibleDaemons) {
+        for (DaemonInfo daemon : compatibleDaemons) {
             try {
                 return connectToDaemon(daemon, new CleanupOnStaleAddress(daemon, true));
             } catch (ConnectException e) {
@@ -101,21 +161,27 @@ public class DefaultDaemonConnector implements DaemonConnector {
     }
 
     public DaemonClientConnection startDaemon(ExplainingSpec<DaemonContext> constraint) {
-        LOGGER.info("Starting Gradle daemon");
+        ProgressLogger progressLogger = progressLoggerFactory.newOperation(DefaultDaemonConnector.class)
+            .start("Starting Gradle Daemon", "Starting Daemon");
         final DaemonStartupInfo startupInfo = daemonStarter.startDaemon();
         LOGGER.debug("Started Gradle daemon {}", startupInfo);
         long expiry = System.currentTimeMillis() + connectTimeout;
-        do {
-            DaemonClientConnection daemonConnection = connectToDaemonWithId(startupInfo, constraint);
-            if (daemonConnection != null) {
-                return daemonConnection;
-            }
-            try {
-                Thread.sleep(200L);
-            } catch (InterruptedException e) {
-                throw UncheckedException.throwAsUncheckedException(e);
-            }
-        } while (System.currentTimeMillis() < expiry);
+        try {
+            do {
+                DaemonClientConnection daemonConnection = connectToDaemonWithId(startupInfo, constraint);
+                if (daemonConnection != null) {
+                    startListener.daemonStarted(daemonConnection.getDaemon());
+                    return daemonConnection;
+                }
+                try {
+                    Thread.sleep(200L);
+                } catch (InterruptedException e) {
+                    throw UncheckedException.throwAsUncheckedException(e);
+                }
+            } while (System.currentTimeMillis() < expiry);
+        } finally {
+            progressLogger.completed();
+        }
 
         throw new DaemonConnectionException("Timeout waiting to connect to the Gradle daemon.\n" + startupInfo.describe());
     }
@@ -127,8 +193,8 @@ public class DefaultDaemonConnector implements DaemonConnector {
                 try {
                     if (!constraint.isSatisfiedBy(daemonInfo.getContext())) {
                         throw new DaemonConnectionException("The newly created daemon process has a different context than expected."
-                                + "\nIt won't be possible to reconnect to this daemon. Context mismatch: "
-                                + "\n" + constraint.whyUnsatisfied(daemonInfo.getContext()));
+                            + "\nIt won't be possible to reconnect to this daemon. Context mismatch: "
+                            + "\n" + constraint.whyUnsatisfied(daemonInfo.getContext()));
                     }
                     return connectToDaemon(daemonInfo, new CleanupOnStaleAddress(daemonInfo, false));
                 } catch (ConnectException e) {
@@ -139,28 +205,34 @@ public class DefaultDaemonConnector implements DaemonConnector {
         return null;
     }
 
-    private DaemonClientConnection connectToDaemon(DaemonInstanceDetails daemon, DaemonClientConnection.StaleAddressDetector staleAddressDetector) throws ConnectException {
-        RemoteConnection<Object> connection;
+    private DaemonClientConnection connectToDaemon(DaemonConnectDetails daemon, DaemonClientConnection.StaleAddressDetector staleAddressDetector) throws ConnectException {
+        ProgressLogger progressLogger = progressLoggerFactory.newOperation(DefaultDaemonConnector.class)
+            .start("Connecting to Gradle Daemon", "Connecting to Daemon");
+        RemoteConnection<Message> connection;
         try {
-            connection = connector.connect(daemon.getAddress()).create(getClass().getClassLoader());
+            connection = connector.connect(daemon.getAddress()).create(Serializers.stateful(DaemonMessageSerializer.create()));
         } catch (ConnectException e) {
             staleAddressDetector.maybeStaleAddress(e);
             throw e;
+        } finally {
+            progressLogger.completed();
         }
         return new DaemonClientConnection(connection, daemon, staleAddressDetector);
     }
 
     private class CleanupOnStaleAddress implements DaemonClientConnection.StaleAddressDetector {
-        private final DaemonInstanceDetails daemon;
+        private final DaemonConnectDetails daemon;
         private final boolean exposeAsStale;
 
-        public CleanupOnStaleAddress(DaemonInstanceDetails daemon, boolean exposeAsStale) {
+        public CleanupOnStaleAddress(DaemonConnectDetails daemon, boolean exposeAsStale) {
             this.daemon = daemon;
             this.exposeAsStale = exposeAsStale;
         }
 
         public boolean maybeStaleAddress(Exception failure) {
-            LOGGER.info(DaemonMessages.REMOVING_DAEMON_ADDRESS_ON_FAILURE + daemon);
+            LOGGER.info("{}{}", DaemonMessages.REMOVING_DAEMON_ADDRESS_ON_FAILURE, daemon);
+            final Date timestamp = new Date(System.currentTimeMillis());
+            daemonRegistry.storeStopEvent(new DaemonStopEvent(timestamp, "by user or operating system"));
             daemonRegistry.remove(daemon.getAddress());
             return exposeAsStale;
         }

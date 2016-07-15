@@ -22,7 +22,6 @@ import org.gradle.api.artifacts.ConfigurationContainer
 import org.gradle.api.artifacts.Dependency
 import org.gradle.api.artifacts.ResolveException
 import org.gradle.api.artifacts.dsl.DependencyHandler
-import org.gradle.api.internal.artifacts.dsl.dependencies.ProjectFinder
 import org.gradle.api.internal.tasks.compile.daemon.CompilerDaemonManager
 import org.gradle.api.internal.tasks.scala.ScalaCompileSpec
 import org.gradle.internal.text.TreeFormatter
@@ -34,8 +33,9 @@ class DownloadingScalaToolChainTest extends Specification {
     ConfigurationContainer configurationContainer = Mock()
     CompilerDaemonManager compilerDaemonManager = Mock()
     DependencyHandler dependencyHandler = Mock()
-    ProjectFinder projectFinder = Mock()
-    DownloadingScalaToolChain scalaToolChain = new DownloadingScalaToolChain(projectFinder, compilerDaemonManager, configurationContainer, dependencyHandler)
+    File gradleUserHome = Mock()
+    File rootProjectDir = Mock()
+    DownloadingScalaToolChain scalaToolChain = new DownloadingScalaToolChain(gradleUserHome, rootProjectDir, compilerDaemonManager, configurationContainer, dependencyHandler)
     ScalaPlatform scalaPlatform = Mock()
 
     def setup() {
@@ -54,7 +54,7 @@ class DownloadingScalaToolChainTest extends Specification {
         when:
         dependencyNotAvailable("scala-compiler")
         def toolProvider = scalaToolChain.select(scalaPlatform)
-        toolProvider.newCompiler(Mock(ScalaCompileSpec))
+        toolProvider.newCompiler(ScalaCompileSpec.class)
 
         then:
         !toolProvider.isAvailable()
@@ -68,7 +68,7 @@ class DownloadingScalaToolChainTest extends Specification {
         dependencyAvailable("scala-compiler")
         dependencyNotAvailable("zinc")
         toolProvider = scalaToolChain.select(scalaPlatform)
-        toolProvider.newCompiler(Mock(ScalaCompileSpec))
+        toolProvider.newCompiler(ScalaCompileSpec.class)
 
         then:
         def zincErrorFormatter = new TreeFormatter()

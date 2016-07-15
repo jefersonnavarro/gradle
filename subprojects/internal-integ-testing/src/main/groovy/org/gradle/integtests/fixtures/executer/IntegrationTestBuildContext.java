@@ -37,15 +37,15 @@ public class IntegrationTestBuildContext {
     public TestFile getUserGuideOutputDir() {
         return file("integTest.userGuideOutputDir", "subprojects/docs/src/samples/userguideOutput");
     }
-    
+
     public TestFile getUserGuideInfoDir() {
-        return file("integTest.userGuideInfoDir", "subprojects/docs/build/src");    
+        return file("integTest.userGuideInfoDir", "subprojects/docs/build/src");
     }
-    
+
     public TestFile getDistributionsDir() {
         return file("integTest.distsDir", "build/distributions");
     }
-    
+
     public TestFile getLibsRepo() {
         return file("integTest.libsRepo", "build/repo");
     }
@@ -58,8 +58,27 @@ public class IntegrationTestBuildContext {
         return file("integTest.gradleUserHomeDir", "intTestHomeDir").file("worker-1");
     }
 
+    public TestFile getTmpDir() {
+        return file("integTest.tmpDir", "build/tmp");
+    }
+
+    public TestFile getNativeServicesDir() {
+        return getGradleUserHomeDir().file("native");
+    }
+
     public GradleVersion getVersion() {
         return GradleVersion.current();
+    }
+
+    public TestFile getFatToolingApiJar() {
+        TestFile toolingApiShadedJarDir = file("integTest.toolingApiShadedJarDir", "subprojects/tooling-api/build/shaded-jar");
+        TestFile fatToolingApiJar = new TestFile(toolingApiShadedJarDir, String.format("gradle-tooling-api-shaded-%s.jar", getVersion().getVersion()));
+
+        if (!fatToolingApiJar.exists()) {
+            throw new IllegalStateException(String.format("The fat Tooling API JAR file does not exist: %s", fatToolingApiJar.getAbsolutePath()));
+        }
+
+        return fatToolingApiJar;
     }
 
     public GradleDistribution distribution(String version) {
@@ -73,6 +92,7 @@ public class IntegrationTestBuildContext {
         return new ReleasedGradleDistribution(version, previousVersionDir.file(version));
     }
 
+
     private static TestFile file(String propertyName, String defaultFile) {
         String path = System.getProperty(propertyName, defaultFile);
         if (path == null) {
@@ -81,6 +101,4 @@ public class IntegrationTestBuildContext {
         }
         return new TestFile(new File(path));
     }
-
-
 }

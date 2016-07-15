@@ -18,22 +18,18 @@ package org.gradle.language
 
 import org.apache.commons.lang.StringUtils
 import org.gradle.api.Plugin
-import org.gradle.api.Project
 import org.gradle.api.Task
 import org.gradle.api.tasks.TaskDependencyMatchers
-import org.gradle.language.base.FunctionalSourceSet
 import org.gradle.language.base.LanguageSourceSet
+import org.gradle.model.ModelMap
 import org.gradle.nativeplatform.NativeBinary
 import org.gradle.nativeplatform.NativeExecutableBinarySpec
 import org.gradle.nativeplatform.NativeExecutableSpec
 import org.gradle.nativeplatform.NativeLibrarySpec
+import org.gradle.platform.base.PlatformBaseSpecification
 import org.gradle.util.GFileUtils
-import org.gradle.util.TestUtil
-import spock.lang.Specification
 
-abstract class AbstractNativeComponentPluginTest extends Specification {
-    final def project = TestUtil.createRootProject()
-
+abstract class AbstractNativeComponentPluginTest extends PlatformBaseSpecification {
     abstract Class<? extends Plugin> getPluginClass();
 
     abstract Class<? extends LanguageSourceSet> getSourceSetClass();
@@ -56,26 +52,27 @@ abstract class AbstractNativeComponentPluginTest extends Specification {
         }
 
         then:
-        def components = project.componentSpecs
+        def components = realizeComponents()
         components.size() == 2
-        components*.name == ["exe", "lib"]
+        components.values()*.name == ["exe", "lib"]
 
         and:
         def exe = components.exe
-        exe.sources instanceof FunctionalSourceSet
+        exe.sources instanceof ModelMap
         sourceSetClass.isInstance(exe.sources."$pluginName")
         exe.sources."$pluginName".source.srcDirs == [project.file("src/exe/$pluginName")] as Set
         exe.sources."$pluginName".exportedHeaders.srcDirs == [project.file("src/exe/headers")] as Set
 
         and:
         def lib = components.lib
-        lib.sources instanceof FunctionalSourceSet
+        lib.sources instanceof ModelMap
         sourceSetClass.isInstance(lib.sources."$pluginName")
         lib.sources."$pluginName".source.srcDirs == [project.file("src/lib/$pluginName")] as Set
         lib.sources."$pluginName".exportedHeaders.srcDirs == [project.file("src/lib/headers")] as Set
 
         and:
-        project.sources as Set == lib.sources + exe.sources
+        def sources = realizeSourceSets()
+        sources as Set == (lib.sources as Set) + (exe.sources as Set)
     }
 
     def "can configure source set locations"() {
@@ -87,7 +84,7 @@ abstract class AbstractNativeComponentPluginTest extends Specification {
                 components {
                     lib(NativeLibrarySpec) {
                         sources {
-                            "$pluginName" {
+                            "${this.pluginName}" {
                                 source {
                                     srcDirs "d3"
                                 }
@@ -99,7 +96,7 @@ abstract class AbstractNativeComponentPluginTest extends Specification {
                     }
                     exe(NativeExecutableSpec) {
                         sources {
-                            "$pluginName" {
+                            "${this.pluginName}" {
                                 source {
                                     srcDirs "d1", "d2"
                                 }
@@ -114,13 +111,14 @@ abstract class AbstractNativeComponentPluginTest extends Specification {
         }
 
         expect:
-        def exe = project.componentSpecs.exe
+        def components = realizeComponents()
+        def exe = components.exe
         with(exe.sources."$pluginName") {
             source.srcDirs*.name == ["d1", "d2"]
             exportedHeaders.srcDirs*.name == ["h1", "h2"]
         }
 
-        def lib = project.componentSpecs.lib
+        def lib = components.lib
         with(lib.sources."$pluginName") {
             source.srcDirs*.name == ["d3"]
             exportedHeaders.srcDirs*.name == ["h3"]
@@ -137,13 +135,13 @@ abstract class AbstractNativeComponentPluginTest extends Specification {
                 components {
                     test(NativeExecutableSpec) {
                         binaries.all { NativeBinary binary ->
-                            binary."${pluginName}Compiler".define "NDEBUG"
-                            binary."${pluginName}Compiler".define "LEVEL", "1"
-                            binary."${pluginName}Compiler".args "ARG1", "ARG2"
+                            binary."${this.pluginName}Compiler".define "NDEBUG"
+                            binary."${this.pluginName}Compiler".define "LEVEL", "1"
+                            binary."${this.pluginName}Compiler".args "ARG1", "ARG2"
                         }
                         sources {
-                            anotherOne(sourceSetClass) {}
-                            emptyOne(sourceSetClass) {}
+                            anotherOne(this.sourceSetClass) {}
+                            emptyOne(this.sourceSetClass) {}
                         }
                     }
                 }
@@ -151,7 +149,7 @@ abstract class AbstractNativeComponentPluginTest extends Specification {
         }
 
         then:
-        NativeExecutableBinarySpec binary = project.binaries.testExecutable
+        NativeExecutableBinarySpec binary = realizeBinaries().testExecutable
         binary.tasks.withType(compileTaskClass)*.name as Set == ["compileTestExecutableTestAnotherOne", "compileTestExecutableTest${StringUtils.capitalize(pluginName)}"] as Set
 
         and:
@@ -169,11 +167,5 @@ abstract class AbstractNativeComponentPluginTest extends Specification {
 
     def touch(String filePath) {
         GFileUtils.touch(project.file(filePath))
-    }
-
-    def dsl(@DelegatesTo(Project) Closure closure) {
-        closure.delegate = project
-        closure()
-        project.realizeTasksAndValidateModel()
     }
 }

@@ -40,7 +40,7 @@ public class ExtensionContainerTest extends Specification {
         expect:
         container.getByName(ExtraPropertiesExtension.EXTENSION_NAME) == container.extraProperties
     }
-    
+
     def "extension can be accessed and configured"() {
         when:
         container.add("foo", extension)
@@ -104,6 +104,13 @@ public class ExtensionContainerTest extends Specification {
         then:
         IllegalArgumentException e2 = thrown()
         e2.message == "There's an extension registered with name 'foo'. You should not reassign it via a property setter."
+
+        when:
+        container.create('foo', Thing, 'bar')
+
+        then:
+        IllegalArgumentException e3 = thrown()
+        e3.message == "Cannot add extension with name 'foo', as there is an extension already registered with that name."
     }
 
     def "knows registered extensions"() {
@@ -159,7 +166,7 @@ public class ExtensionContainerTest extends Specification {
         container.findByType(Parent) == child
         container.getByType(Parent) == child
     }
-    
+
     def "can create ExtensionAware extensions"() {
         given:
         container.add("foo", Parent)
@@ -167,10 +174,10 @@ public class ExtensionContainerTest extends Specification {
 
         expect:
         extension instanceof ExtensionAware
-        
+
         when:
         extension.extensions.create("thing", Thing, "bar")
-        
+
         then:
         extension.thing.name == "bar"
     }

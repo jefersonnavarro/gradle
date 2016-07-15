@@ -13,18 +13,26 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+// START SNIPPET build-script
+import sample.documentation.DocumentationComponent
+import sample.documentation.TextSourceSet
 import sample.markdown.MarkdownSourceSet
-import sample.markdown.MarkdownPlugin
 
 apply plugin:sample.documentation.DocumentationPlugin
 apply plugin:sample.markdown.MarkdownPlugin
 
 model {
     components {
-        docs {
+        docs(DocumentationComponent) {
             sources {
-                userguide(MarkdownSourceSet)
+                reference(TextSourceSet)
+                userguide(MarkdownSourceSet) {
+                    generateIndex = true
+                    smartQuotes = true
+                }
             }
         }
     }
 }
+// END SNIPPET build-script

@@ -16,8 +16,12 @@
 
 package org.gradle.nativeplatform.toolchain.internal
 
+import org.gradle.api.Action
+import org.gradle.internal.concurrent.DefaultExecutorFactory
 import org.gradle.internal.operations.BuildOperationProcessor
 import org.gradle.internal.operations.DefaultBuildOperationProcessor
+import org.gradle.internal.operations.DefaultBuildOperationQueueFactory
+import org.gradle.internal.operations.logging.BuildOperationLogger
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
 import spock.lang.Specification
@@ -28,27 +32,25 @@ public abstract class NativeCompilerTest extends Specification {
 
     private static final String O_EXT = ".o"
 
-    protected abstract NativeCompiler getCompiler(CommandLineToolInvocation invocation, String objectFileExtension, boolean useCommandFile)
-    protected NativeCompiler getCompiler(CommandLineToolInvocation invocation) {
-        getCompiler(invocation, O_EXT, false)
+    protected abstract NativeCompiler getCompiler(CommandLineToolContext invocationContext, String objectFileExtension, boolean useCommandFile)
+    protected NativeCompiler getCompiler() {
+        getCompiler(new DefaultMutableCommandLineToolContext(), O_EXT, false)
     }
 
     protected abstract Class<? extends NativeCompileSpec> getCompileSpecType()
     protected abstract List<String> getCompilerSpecificArguments(File includeDir)
 
-    protected CommandLineTool commandLineTool = Mock(CommandLineTool)
-    protected BuildOperationProcessor buildOperationProcessor = new DefaultBuildOperationProcessor(1)
+    protected CommandLineToolInvocationWorker commandLineTool = Mock(CommandLineToolInvocationWorker)
+    protected BuildOperationProcessor buildOperationProcessor = new DefaultBuildOperationProcessor(new DefaultBuildOperationQueueFactory(), new DefaultExecutorFactory(), 1)
 
     def "arguments include source file"() {
         given:
-        def invocation = Mock(MutableCommandLineToolInvocation)
-        def compiler = getCompiler(invocation)
+        def compiler = getCompiler()
         def testDir = tmpDirProvider.testDirectory
-        def args = []
         def sourceFile = testDir.file("source.ext")
 
         when:
-        compiler.addSourceArgs(args, sourceFile)
+        def args = compiler.getSourceArgs(sourceFile)
 
         then:
         args == [ sourceFile.absoluteFile.toString() ]
@@ -57,8 +59,7 @@ public abstract class NativeCompilerTest extends Specification {
     @Unroll
     def "output file directory honors output extension '#extension' and directory"() {
         given:
-        def invocation = Mock(MutableCommandLineToolInvocation)
-        def compiler = getCompiler(invocation)
+        def compiler = getCompiler()
         def testDir = tmpDirProvider.testDirectory
         def sourceFile = testDir.file("source.ext")
 
@@ -81,8 +82,7 @@ public abstract class NativeCompilerTest extends Specification {
 
     def "arguments contains parameters from spec"() {
         given:
-        def invocation = new DefaultCommandLineToolInvocation()
-        def compiler = getCompiler(invocation)
+        def compiler = getCompiler()
         def testDir = tmpDirProvider.testDirectory
         def includeDir = testDir.file("includes")
         def expectedArgs = getCompilerSpecificArguments(includeDir)
@@ -92,6 +92,9 @@ public abstract class NativeCompilerTest extends Specification {
             getMacros() >> [foo: "bar", empty: null]
             getAllArgs() >> ["-firstArg", "-secondArg"]
             getIncludeRoots() >> [ includeDir ]
+            getOperationLogger() >> Mock(BuildOperationLogger)
+            getPrefixHeaderFile() >> null
+            getPreCompiledHeaderObjectFile() >> null
         }
 
         and:
@@ -104,8 +107,8 @@ public abstract class NativeCompilerTest extends Specification {
     @Unroll("Compiles source files (options.txt=#withOptionsFile) with #description")
     def "compiles all source files in separate executions"() {
         given:
-        def invocation = new DefaultCommandLineToolInvocation()
-        def compiler = getCompiler(invocation, O_EXT, withOptionsFile)
+        def invocationContext = new DefaultMutableCommandLineToolContext()
+        def compiler = getCompiler(invocationContext, O_EXT, withOptionsFile)
         def testDir = tmpDirProvider.testDirectory
         def objectFileDir = testDir.file("output/objects")
         def sourceFiles = [ testDir.file("source1.ext"), testDir.file("source2.ext") ]
@@ -115,6 +118,12 @@ public abstract class NativeCompilerTest extends Specification {
             getTempDir() >> testDir
             getObjectFileDir() >> objectFileDir
             getSourceFiles() >> sourceFiles
+            getOperationLogger() >> Mock(BuildOperationLogger) {
+                getLogLocation() >> "<log location>"
+            }
+            getPreCompiledHeader() >> null
+            getPrefixHeaderFile() >> null
+            getPreCompiledHeaderObjectFile() >> null
         }
 
         and:
@@ -133,59 +142,39 @@ public abstract class NativeCompilerTest extends Specification {
         false           | "options passed on the command line only"
     }
 
-    def "base invocation post arg actions run once per execute"() {
+    def "user-supplied arg actions run once per execute"() {
         given:
-        def invocation = Mock(MutableCommandLineToolInvocation)
-        def compiler = getCompiler(invocation)
+        def invocationContext = new DefaultMutableCommandLineToolContext()
+        def action = Mock(Action)
+        invocationContext.setArgAction(action)
+        def compiler = getCompiler(invocationContext, O_EXT, false)
         def testDir = tmpDirProvider.testDirectory
         def objectFileDir = testDir.file("output/objects")
         def sourceFiles = [ testDir.file("source1.ext"), testDir.file("source2.ext") ]
-
         when:
         NativeCompileSpec compileSpec = Stub(getCompileSpecType()) {
             getObjectFileDir() >> objectFileDir
             getSourceFiles() >> sourceFiles
+            getOperationLogger() >> Mock(BuildOperationLogger)
+            getPreCompiledHeader() >> null
+            getPrefixHeaderFile() >> null
+            getPreCompiledHeaderObjectFile() >> null
         }
-
-        invocation.copy() >> invocation >> Mock(MutableCommandLineToolInvocation)
-        commandLineTool.toRunnableExecution(_) >> { args ->
-            def perFileInvocation = args[0]
-            return new Runnable() {
-                public void run() {
-                    perFileInvocation.getArgs()
-                }
-            }
-        }
+        and:
+        invocationContext.getArgAction() >> action
 
         and:
         compiler.execute(compileSpec)
 
         then:
-        1 * invocation.getArgs() >> []
-    }
-
-    def "invocation for each source file removes post-args actions"() {
-        given:
-        def invocation = Mock(MutableCommandLineToolInvocation)
-        def compiler = getCompiler(invocation)
-        def testDir = tmpDirProvider.testDirectory
-        def objectFileDir = testDir.file("output/objects")
-        def sourceFile = testDir.file("source.ext")
-
-        when:
-        compiler.createPerFileInvocation([], sourceFile, objectFileDir)
-
-        then:
-        1 * invocation.copy() >> invocation
-        1 * invocation.setArgs(_)
-        1 * invocation.setWorkDirectory(objectFileDir)
-        1 * invocation.clearPostArgsActions()
+        1 * action.execute(_)
+        2 * commandLineTool.execute(_)
     }
 
     def "options file is written"() {
         given:
-        def invocation = new DefaultCommandLineToolInvocation()
-        def compiler = getCompiler(invocation, O_EXT, true)
+        def invocationContext = new DefaultMutableCommandLineToolContext()
+        def compiler = getCompiler(invocationContext, O_EXT, true)
         def testDir = tmpDirProvider.testDirectory
         def includeDir = testDir.file("includes")
         def commandLineArgs = getCompilerSpecificArguments(includeDir)
@@ -196,6 +185,10 @@ public abstract class NativeCompilerTest extends Specification {
             getAllArgs() >> ["-firstArg", "-secondArg"]
             getIncludeRoots() >> [ includeDir ]
             getTempDir() >> testDir
+            getOperationLogger() >> Mock(BuildOperationLogger)
+            getPreCompiledHeader() >> null
+            getPrefixHeaderFile() >> null
+            getPreCompiledHeaderObjectFile() >> null
         }
 
         and:

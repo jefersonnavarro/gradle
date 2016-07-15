@@ -15,10 +15,10 @@
  */
 package org.gradle.api.internal.artifacts.repositories.resolver;
 
-import org.gradle.internal.component.external.model.DefaultModuleComponentArtifactMetaData;
-import org.gradle.internal.component.external.model.ModuleComponentArtifactMetaData;
+import org.gradle.internal.component.external.model.DefaultModuleComponentArtifactMetadata;
+import org.gradle.internal.component.external.model.ModuleComponentArtifactMetadata;
 import org.gradle.internal.resolve.result.ResourceAwareResolveResult;
-import org.gradle.internal.resource.LocallyAvailableExternalResource;
+import org.gradle.internal.resource.local.LocallyAvailableExternalResource;
 
 class MavenUniqueSnapshotExternalResourceArtifactResolver implements ExternalResourceArtifactResolver {
     private final ExternalResourceArtifactResolver delegate;
@@ -29,21 +29,17 @@ class MavenUniqueSnapshotExternalResourceArtifactResolver implements ExternalRes
         this.timestamp = timestamp;
     }
 
-    public boolean artifactExists(ModuleComponentArtifactMetaData artifact, ResourceAwareResolveResult result) {
+    public boolean artifactExists(ModuleComponentArtifactMetadata artifact, ResourceAwareResolveResult result) {
         return delegate.artifactExists(timestamp(artifact), result);
     }
 
-    public LocallyAvailableExternalResource resolveArtifact(ModuleComponentArtifactMetaData artifact, ResourceAwareResolveResult result) {
+    public LocallyAvailableExternalResource resolveArtifact(ModuleComponentArtifactMetadata artifact, ResourceAwareResolveResult result) {
         return delegate.resolveArtifact(timestamp(artifact), result);
     }
 
-    public LocallyAvailableExternalResource resolveMetaDataArtifact(ModuleComponentArtifactMetaData artifact, ResourceAwareResolveResult result) {
-        return delegate.resolveMetaDataArtifact(timestamp(artifact), result);
-    }
-
-    protected ModuleComponentArtifactMetaData timestamp(ModuleComponentArtifactMetaData artifact) {
+    protected ModuleComponentArtifactMetadata timestamp(ModuleComponentArtifactMetadata artifact) {
         MavenUniqueSnapshotComponentIdentifier snapshotComponentIdentifier =
                 new MavenUniqueSnapshotComponentIdentifier(artifact.getId().getComponentIdentifier(), timestamp);
-        return new DefaultModuleComponentArtifactMetaData(snapshotComponentIdentifier, artifact.getName());
+        return new DefaultModuleComponentArtifactMetadata(snapshotComponentIdentifier, artifact.getName());
     }
 }

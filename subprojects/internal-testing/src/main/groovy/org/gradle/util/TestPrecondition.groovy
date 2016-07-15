@@ -14,11 +14,13 @@
  * limitations under the License.
  */
 package org.gradle.util
-
 import org.gradle.api.JavaVersion
 import org.gradle.internal.os.OperatingSystem
 
-enum TestPrecondition {
+import javax.tools.ToolProvider
+
+enum TestPrecondition implements org.gradle.internal.Factory<Boolean> {
+    NULL_REQUIREMENT({ true }),
     SWING({
         !UNKNOWN_OS.fulfilled
     }),
@@ -76,23 +78,20 @@ enum TestPrecondition {
     UNIX({
         OperatingSystem.current().unix
     }),
+    UNIX_DERIVATIVE({
+        MAC_OS_X.fulfilled || LINUX.fulfilled || UNIX.fulfilled
+    }),
     UNKNOWN_OS({
         OperatingSystem.current().name == "unknown operating system"
     }),
     NOT_UNKNOWN_OS({
         !UNKNOWN_OS.fulfilled
     }),
-    JDK6({
-        JavaVersion.current() == JavaVersion.VERSION_1_6
-    }),
-    JDK6_OR_LATER({
-        JavaVersion.current() >= JavaVersion.VERSION_1_6
-    }),
-    JDK7_OR_LATER({
-        JavaVersion.current() >= JavaVersion.VERSION_1_7
-    }),
     JDK7_OR_EARLIER({
         JavaVersion.current() <= JavaVersion.VERSION_1_7
+    }),
+    JDK9_OR_LATER({
+        JavaVersion.current() >= JavaVersion.VERSION_1_9
     }),
     JDK8_OR_LATER({
         JavaVersion.current() >= JavaVersion.VERSION_1_8
@@ -101,10 +100,22 @@ enum TestPrecondition {
         JavaVersion.current() <= JavaVersion.VERSION_1_8
     }),
     JDK7_POSIX({
-        JDK7_OR_LATER.fulfilled && NOT_WINDOWS.fulfilled
+        NOT_WINDOWS.fulfilled
     }),
     NOT_JDK_IBM({
-        System.getProperty('java.vm.vendor') != 'IBM Corporation'
+        !JDK_IBM.fulfilled
+    }),
+    FIX_TO_WORK_ON_JAVA9({
+        JDK8_OR_EARLIER.fulfilled
+    }),
+    JDK_IBM({
+        System.getProperty('java.vm.vendor') == 'IBM Corporation'
+    }),
+    JDK_ORACLE({
+        System.getProperty('java.vm.vendor') == 'Oracle Corporation'
+    }),
+    JDK({
+        ToolProvider.systemJavaCompiler != null
     }),
     ONLINE({
         try {
@@ -117,9 +128,23 @@ enum TestPrecondition {
     CAN_INSTALL_EXECUTABLE({
         FILE_PERMISSIONS.fulfilled || WINDOWS.fulfilled
     }),
-    // TODO:DAZ Should be detecting this based on tool chain, not OS
     OBJECTIVE_C_SUPPORT({
         NOT_WINDOWS.fulfilled && NOT_UNKNOWN_OS.fulfilled
+    }),
+    SMART_TERMINAL({
+        System.getenv("TERM")?.toUpperCase() != "DUMB"
+    }),
+    PULL_REQUEST_BUILD({
+        if (System.getenv("TRAVIS")?.toUpperCase() == "TRUE") {
+            return true
+        }
+        if (System.getenv("PULL_REQUEST_BUILD")?.toUpperCase() == "TRUE") {
+            return true
+        }
+        return false
+    }),
+    NOT_PULL_REQUEST_BUILD({
+        !PULL_REQUEST_BUILD.fulfilled
     });
 
     /**
@@ -136,6 +161,11 @@ enum TestPrecondition {
      */
     boolean isFulfilled() {
         predicate()
+    }
+
+    @Override
+    Boolean create() {
+        return isFulfilled()
     }
 }
 

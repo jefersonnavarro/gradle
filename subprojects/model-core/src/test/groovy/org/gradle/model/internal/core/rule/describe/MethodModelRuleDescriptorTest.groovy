@@ -16,6 +16,8 @@
 
 package org.gradle.model.internal.core.rule.describe
 
+import org.gradle.model.internal.method.WeaklyTypeReferencingMethod
+import org.gradle.model.internal.type.ModelType
 import spock.lang.Specification
 
 class MethodModelRuleDescriptorTest extends Specification {
@@ -23,17 +25,32 @@ class MethodModelRuleDescriptorTest extends Specification {
     def "check description"() {
         when:
         def sb = new StringBuilder()
-        MethodModelRuleDescriptor.of(getClass(), method).describeTo(sb)
+        MethodModelRuleDescriptor.of(weakMethod(getClass(), method)).describeTo(sb)
 
         then:
-        sb.toString() == getClass().name + "#" + method + description
+        sb.toString() == ModelType.of(getClass()).displayName + "#" + desc
 
         where:
-        method        | description
-        "noArgs"      | "()"
-        "oneArg"      | "(java.lang.String)"
-        "twoArgs"     | "(java.lang.String, java.lang.String)"
-        "genericArgs" | "(java.util.List<java.lang.String>, java.util.Map<java.lang.Integer, java.util.List<java.lang.String>>)"
+        method        | desc
+        "noArgs"      | 'noArgs()'
+        "oneArg"      | 'oneArg(String)'
+        "twoArgs"     | 'twoArgs(String, String)'
+        "genericArgs" | 'genericArgs(List<String>, Map<Integer, List<String>>)'
+    }
+
+    def "inner classes are described"() {
+        when:
+        def sb = new StringBuilder()
+        MethodModelRuleDescriptor.of(weakMethod(Outer.Inner, "noArgs")).describeTo(sb)
+
+        then:
+        sb.toString() == 'MethodModelRuleDescriptorTest.Outer.Inner#noArgs()'
+    }
+
+    private WeaklyTypeReferencingMethod weakMethod(Class type, String name) {
+        def declaringType = ModelType.of(type)
+        def method = type.getDeclaredMethods().find { it.name == name }
+        WeaklyTypeReferencingMethod.of(declaringType, ModelType.of(method.returnType), method)
     }
 
     def noArgs() {}
@@ -43,4 +60,10 @@ class MethodModelRuleDescriptorTest extends Specification {
     def twoArgs(String s1, String s2) {}
 
     def genericArgs(List<String> list, Map<Integer, List<String>> map) {}
+
+    class Outer {
+        static class Inner {
+            def noArgs() {}
+        }
+    }
 }

@@ -16,37 +16,37 @@
 
 package sample.markdown
 
-import org.gradle.api.Action
-import org.gradle.model.Path
-import org.gradle.model.RuleSource
+import org.gradle.api.Task
+import org.gradle.model.ModelMap
 import org.gradle.model.RuleSource
 import org.gradle.platform.base.BinaryTasks
-import org.gradle.platform.base.LanguageType
-import org.gradle.platform.base.LanguageTypeBuilder
-import org.gradle.model.collection.CollectionBuilder
-import org.gradle.api.Task
+import org.gradle.platform.base.ComponentType
+import org.gradle.platform.base.TypeBuilder
 import sample.documentation.DocumentationBinary
 
+// START SNIPPET markdown-lang-registration
+// START SNIPPET markdown-tasks-generation
 class MarkdownPlugin extends RuleSource {
-    @LanguageType
-    void declareMarkdownLanguage(LanguageTypeBuilder<MarkdownSourceSet> builder) {
-        builder.setLanguageName("Markdown")
-        builder.defaultImplementation(DefaultMarkdownSourceSet)
-    }
+// END SNIPPET markdown-tasks-generation
+    @ComponentType
+    void registerMarkdownLanguage(TypeBuilder<MarkdownSourceSet> builder) {}
+// END SNIPPET markdown-lang-registration
 
+// START SNIPPET markdown-tasks-generation
     @BinaryTasks
-    void createMarkdownHtmlCompilerTasks(CollectionBuilder<Task> tasks, final DocumentationBinary binary, @Path("buildDir") final File buildDir) {
-        for (final MarkdownSourceSet markdownSourceSet : binary.getSource().withType(MarkdownSourceSet.class)) {
-            final String taskName = binary.getName() + markdownSourceSet.getName().capitalize() + "HtmlCompile"
-            final File htmlOutputDirectory = new File(buildDir, "${binary.name}/src/${markdownSourceSet.name}");
-            tasks.create(taskName, MarkdownHtmlCompile.class, new Action<MarkdownHtmlCompile>() {
-                @Override
-                public void execute(MarkdownHtmlCompile markdownHtmlCompile) {
-                    markdownHtmlCompile.setSource(markdownSourceSet.getSource());
-                    markdownHtmlCompile.setDestinationDir(htmlOutputDirectory);
-                    binary.add(markdownSourceSet.name, markdownHtmlCompile)
-                }
-            });
+    void processMarkdownDocumentation(ModelMap<Task> tasks, final DocumentationBinary binary) {
+        binary.inputs.withType(MarkdownSourceSet) { markdownSourceSet ->
+            def taskName = binary.tasks.taskName("compile", markdownSourceSet.name)
+            def outputDir = new File(binary.outputDir, markdownSourceSet.name)
+            tasks.create(taskName, MarkdownHtmlCompile) { compileTask ->
+                compileTask.source = markdownSourceSet.source
+                compileTask.destinationDir = outputDir
+                compileTask.smartQuotes = markdownSourceSet.smartQuotes
+                compileTask.generateIndex = markdownSourceSet.generateIndex
+            }
         }
     }
+// START SNIPPET markdown-lang-registration
 }
+// END SNIPPET markdown-lang-registration
+// END SNIPPET markdown-tasks-generation

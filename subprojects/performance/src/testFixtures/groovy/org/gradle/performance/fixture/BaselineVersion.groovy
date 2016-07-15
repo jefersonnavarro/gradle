@@ -34,14 +34,10 @@ class BaselineVersion implements VersionResults {
         results.name = "Gradle $version"
     }
 
-    void clearResults() {
-        results.clear()
-    }
-
     String getSpeedStatsAgainst(String displayName, MeasuredOperationList current) {
         def sb = new StringBuilder()
-        def thisVersionAverage = results.executionTime.average
-        def currentVersionAverage = current.executionTime.average
+        def thisVersionAverage = results.totalTime.average
+        def currentVersionAverage = current.totalTime.average
         if (currentVersionAverage > thisVersionAverage) {
             sb.append "Speed $displayName: we're slower than $version.\n"
         } else {
@@ -80,6 +76,6 @@ class BaselineVersion implements VersionResults {
     }
 
     boolean fasterThan(MeasuredOperationList current) {
-        current.executionTime.average - results.executionTime.average > maxExecutionTimeRegression
+        current.totalTime.average - results.totalTime.average > maxExecutionTimeRegression
     }
 }

@@ -18,9 +18,9 @@ package org.gradle.plugin.use.resolve.service.internal
 
 import com.google.gson.Gson
 import org.gradle.api.GradleException
-import org.gradle.api.Transformer
 import org.gradle.internal.resource.transport.http.HttpResourceAccessor
 import org.gradle.internal.resource.transport.http.HttpResponseResource
+import org.gradle.internal.resource.transport.http.SslContextFactory
 import org.gradle.plugin.internal.PluginId
 import org.gradle.plugin.use.internal.PluginRequest
 import org.gradle.util.GradleVersion
@@ -29,7 +29,8 @@ import spock.lang.Specification
 class HttpPluginResolutionServiceClientTest extends Specification {
     public static final String PLUGIN_PORTAL_URL = "http://plugin.portal"
     private resourceAccessor = Mock(HttpResourceAccessor)
-    private client = new HttpPluginResolutionServiceClient(resourceAccessor)
+    private sslContextFactory = Mock(SslContextFactory)
+    private client = new HttpPluginResolutionServiceClient(sslContextFactory, resourceAccessor)
     private request = Stub(PluginRequest) {
         getId() >> PluginId.of("foo")
     }
@@ -122,9 +123,7 @@ class HttpPluginResolutionServiceClientTest extends Specification {
         1 * resourceAccessor.getRawResource(new URI("$PLUGIN_PORTAL_URL/${GradleVersion.current().getVersion()}/plugin/use/foo%2Fbar/1%2F0")) >> Stub(HttpResponseResource) {
             getStatusCode() >> 500
             getContentType() >> "application/json"
-            withContent(_) >> { Transformer<PluginUseMetaData, InputStream> action ->
-                action.transform(new ByteArrayInputStream("{errorCode: 'FOO', message: 'BAR'}".getBytes("utf8")))
-            }
+            openStream() >> new ByteArrayInputStream("{errorCode: 'FOO', message: 'BAR'}".getBytes("utf8"))
         }
         0 * resourceAccessor.getRawResource(_)
     }
@@ -135,9 +134,7 @@ class HttpPluginResolutionServiceClientTest extends Specification {
                 getStatusCode() >> statusCode
                 if (jsonResponse != null) {
                     getContentType() >> "application/json"
-                    withContent(_) >> { Transformer<PluginUseMetaData, InputStream> action ->
-                        action.transform(new ByteArrayInputStream(jsonResponse.getBytes("utf8")))
-                    }
+                    openStream() >> new ByteArrayInputStream(jsonResponse.getBytes("utf8"))
                 }
             }
         }

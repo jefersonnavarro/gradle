@@ -17,6 +17,7 @@
 package org.gradle.language
 
 import groovy.io.FileType
+import groovy.transform.NotYetImplemented
 import org.gradle.integtests.fixtures.CompilationOutputsFixture
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
 import org.gradle.nativeplatform.fixtures.app.IncrementalHelloWorldApp
@@ -29,6 +30,7 @@ abstract class AbstractNativeLanguageIncrementalCompileIntegrationTest extends A
     String compileTask
     TestFile sourceFile
     TestFile sharedHeaderFile
+    TestFile commonHeaderFile
     TestFile otherHeaderFile
     List<TestFile> otherSourceFiles = []
     TestFile objectFileDir
@@ -57,13 +59,14 @@ abstract class AbstractNativeLanguageIncrementalCompileIntegrationTest extends A
         and:
         sourceFile = app.mainSource.writeToDir(file("src/main"))
         sharedHeaderFile = app.libraryHeader.writeToDir(file("src/main"))
+        commonHeaderFile = app.commonHeader.writeToDir(file("src/main"))
         app.librarySources.each {
             otherSourceFiles << it.writeToDir(file("src/main"))
         }
         otherHeaderFile = file("src/main/headers/other.h") << """
             // Dummy header file
 """
-        objectFileDir = file("build/objs/mainExecutable")
+        objectFileDir = file("build/objs/main")
         outputs = new CompilationOutputsFixture(objectFileDir)
     }
 
@@ -125,8 +128,106 @@ abstract class AbstractNativeLanguageIncrementalCompileIntegrationTest extends A
         outputs.recompiledFile sourceFile
     }
 
+    def "does not recompile when fallback mechanism is used and there are empty directories"() {
+        given:
+        file("src/main/headers/empty/directory").mkdirs()
+        sourceFile << """
+            #define MY_HEADER "${otherHeaderFile.name}"
+            #include MY_HEADER
+"""
+
+        and:
+        outputs.snapshot { run "mainExecutable" }
+
+        when:
+        run "mainExecutable"
+        then:
+        skipped compileTask
+    }
+
+    def "does not recompile when included header has the same name as a directory"() {
+        given:
+        buildFile << """
+model {
+    components {
+        main {
+            sources.all {
+                exportedHeaders {
+                    srcDirs = [ "src/other", "src/main/headers" ]
+                }
+            }
+        }
+    }
+}
+"""
+        // This is a directory named 'directory'
+        file("src/other/directory").mkdirs()
+        // This is a header named 'directory'
+        file("src/main/headers/directory") << '#pragma message("including directory named header")'
+        file("src/main/headers/macro.h") << '#pragma message("including macro header")'
+
+        sourceFile << """
+            #include "directory"
+            #define MACRO "macro.h"
+            #include MACRO
+"""
+
+        and:
+        outputs.snapshot { run "mainExecutable" }
+
+        when:
+        run "mainExecutable"
+        then:
+        skipped compileTask
+    }
+
+    @NotYetImplemented
+    def "recompiles when included header has the same name as a directory and the directory becomes a file"() {
+        given:
+        buildFile << """
+model {
+    components {
+        main {
+            sources.all {
+                exportedHeaders {
+                    srcDirs = [ "src/other", "src/main/headers" ]
+                }
+            }
+        }
+    }
+}
+"""
+        // directory header starts out as a directory
+        def directoryHeader = file("src/other/directory")
+        directoryHeader.mkdirs()
+        // this is the a header file named 'directory'
+        file("src/main/headers/directory") << '#pragma message("including directory named header")'
+
+        sourceFile << """
+            #include "directory"
+"""
+
+        and:
+        outputs.snapshot { run "mainExecutable" }
+
+        when:
+        directoryHeader.deleteDir()
+        directoryHeader << '#pragma message("NEW directory named header")'
+        and:
+        executer.withArgument("--info")
+        run "mainExecutable"
+        then:
+        executedAndNotSkipped compileTask
+        and:
+        outputs.recompiledFile sourceFile
+        result.assertOutputContains("NEW directory named header")
+
+    }
+
     def "source is always recompiled if it includes header via macro"() {
         given:
+        def notIncluded = file("src/main/headers/notIncluded.h")
+        notIncluded.text = """#pragma message("should not be used")"""
         sourceFile << """
             #define MY_HEADER "${otherHeaderFile.name}"
             #include MY_HEADER
@@ -149,7 +250,7 @@ abstract class AbstractNativeLanguageIncrementalCompileIntegrationTest extends A
         outputs.recompiledFile sourceFile
 
         when: "Header that is NOT included is changed"
-        file("src/main/headers/notIncluded.h") << """
+        notIncluded << """
             // Dummy header file
 """
         and:
@@ -160,6 +261,81 @@ abstract class AbstractNativeLanguageIncrementalCompileIntegrationTest extends A
 
         and:
         outputs.recompiledFile sourceFile
+    }
+
+    def "source is not recompiled when preprocessor removed header is changed"() {
+        given:
+        def notIncluded = file("src/main/headers/notIncluded.h")
+        notIncluded.text = """#pragma message("should not be used")"""
+        sourceFile << """
+            #if 0
+            #include "${notIncluded.name}"
+            #else
+            #include "${otherHeaderFile.name}"
+            #endif
+"""
+        and:
+        outputs.snapshot { run "mainExecutable" }
+
+        when:
+        otherHeaderFile << """
+            // Some extra content
+"""
+        and:
+        run "mainExecutable"
+
+        then:
+        executedAndNotSkipped compileTask
+
+        and:
+        outputs.recompiledFile sourceFile
+        and:
+        !output.contains("should not be used")
+
+        when:
+        // this header isn't included
+        notIncluded << """
+            // Dummy header file
+"""
+        and:
+        run "mainExecutable"
+
+        then:
+        // TODO: This is inefficient behavior, we should skip the compile task because 'notIncluded' is not used.
+        // skipped compileTask
+        executedAndNotSkipped compileTask
+    }
+
+    def "source is compiled when preprocessor removed header does not exist"() {
+        given:
+        sourceFile << """
+            #if 0
+            #include "doesNotExist.h"
+            #else
+            #include "${otherHeaderFile.name}"
+            #endif
+"""
+        and:
+        outputs.snapshot { run "mainExecutable" }
+
+        when:
+        otherHeaderFile << """
+            // Some extra content
+"""
+        and:
+        run "mainExecutable"
+
+        then:
+        executedAndNotSkipped compileTask
+
+        and:
+        outputs.recompiledFile sourceFile
+
+        when:
+        run "mainExecutable"
+
+        then:
+        skipped compileTask
     }
 
     def "recompiles source file when transitively included header file is changed"() {
@@ -224,6 +400,8 @@ abstract class AbstractNativeLanguageIncrementalCompileIntegrationTest extends A
         outputs.noneRecompiled()
     }
 
+    // We can't implement this because we rebuild everything when the include path changes
+    @NotYetImplemented
     @Unroll
     def "does not recompile when include path has #testCase"() {
         given:
@@ -271,6 +449,7 @@ abstract class AbstractNativeLanguageIncrementalCompileIntegrationTest extends A
         outputs.snapshot { run "mainExecutable" }
 
         file("src/replacement-headers/${sharedHeaderFile.name}") << sharedHeaderFile.text
+        file("src/replacement-headers/${commonHeaderFile.name}") << commonHeaderFile.text
 
         when:
         buildFile << """
@@ -319,6 +498,7 @@ model {
 
         when:
         file("src/replacement-headers/${sharedHeaderFile.name}") << sharedHeaderFile.text
+        file("src/replacement-headers/${commonHeaderFile.name}") << commonHeaderFile.text
 
         and:
         run "mainExecutable"
@@ -336,6 +516,7 @@ model {
 
         when:
         sourceFile.parentFile.file(sharedHeaderFile.name) << sharedHeaderFile.text
+        sourceFile.parentFile.file(commonHeaderFile.name) << commonHeaderFile.text
 
         and:
         run "mainExecutable"
@@ -344,7 +525,7 @@ model {
         executedAndNotSkipped compileTask
 
         and:
-        outputs.recompiledFiles allSources
+        outputs.recompiledFiles allSources + [commonHeaderFile]
     }
 
     def "recompiles all source files and removes stale outputs when compiler arg changes"() {
@@ -442,7 +623,7 @@ model {
         given:
         run "mainExecutable"
 
-        def executable = executable("build/binaries/mainExecutable/main")
+        def executable = executable("build/exe/main/main")
         executable.assertExists()
 
         when:
@@ -492,6 +673,7 @@ model {
 }
 """
         app.writeSources(file("src/other"))
+        app.commonHeader.writeToDir(file("src/other"))
 
         and:
         outputs.snapshot { run "mainExecutable" }

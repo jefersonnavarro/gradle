@@ -21,7 +21,6 @@ import org.gradle.api.initialization.ProjectDescriptor
 import org.gradle.api.internal.GradleInternal
 import org.gradle.api.internal.file.TestFiles
 import org.gradle.api.internal.initialization.ClassLoaderScope
-import org.gradle.api.internal.project.DefaultProject
 import org.gradle.api.internal.project.IProjectFactory
 import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
@@ -45,7 +44,7 @@ class InstantiatingBuildLoaderTest extends Specification {
     GradleInternal build
     def rootProjectClassLoaderScope = Mock(ClassLoaderScope)
     def baseClassLoaderScope = Mock(ClassLoaderScope) {
-        1 * createChild() >> rootProjectClassLoaderScope
+        1 * createChild("root-project") >> rootProjectClassLoaderScope
     }
 
     @Rule
@@ -102,7 +101,7 @@ class InstantiatingBuildLoaderTest extends Specification {
     }
 
     ProjectInternal project(ProjectDescriptor descriptor, ProjectInternal parent) {
-        DefaultProject project
+        ProjectInternal project
         if (parent) {
             project = TestUtil.createChildProject(parent, descriptor.name, descriptor.projectDir)
         } else {

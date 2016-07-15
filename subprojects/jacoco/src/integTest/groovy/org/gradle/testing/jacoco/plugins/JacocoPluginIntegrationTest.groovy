@@ -39,10 +39,27 @@ class JacocoPluginIntegrationTest extends AbstractIntegrationSpec {
                 mavenCentral()
             }
             dependencies {
-                testCompile 'junit:junit:4.11'
+                testCompile 'junit:junit:4.12'
             }
         """
         createTestFiles()
+    }
+
+    def "jacoco plugin adds coverage report for test task when java plugin applied"() {
+        given:
+        buildFile << '''
+            task doCheck {
+                doLast {
+                    assert project.test.extensions.getByType(JacocoTaskExtension) != null
+                    assert project.jacocoTestReport instanceof JacocoReport
+                    assert project.jacocoTestReport.sourceDirectories*.absolutePath == project.files("src/main/java")*.absolutePath
+                    assert project.jacocoTestReport.classDirectories == project.sourceSets.main.output
+                }
+            }
+        '''.stripIndent()
+
+        expect:
+        succeeds 'doCheck'
     }
 
     def "dependencies report shows default jacoco dependencies"() {
@@ -147,7 +164,7 @@ class JacocoPluginIntegrationTest extends AbstractIntegrationSpec {
 
     @IgnoreIf({GradleContextualExecuter.parallel})
     void jacocoReportIsIncremental() {
-        def reportResourceDir = file("${REPORTING_BASE}/jacoco/test/html/.resources")
+        def reportResourceDir = file("${REPORTING_BASE}/jacoco/test/html/jacoco-resources")
 
         when:
         succeeds('test', 'jacocoTestReport')
@@ -226,7 +243,6 @@ public class ThingTest {
 
             task otherTests(type: Test) {
                 binResultsDir file("bin")
-                testSrcDirs = sourceSets.otherTest.java.srcDirs as List
                 testClassesDir = sourceSets.otherTest.output.classesDir
                 classpath = sourceSets.otherTest.runtimeClasspath
             }
@@ -258,6 +274,35 @@ public class ThingTest {
         expect:
         //dependencies task forces resolution of the configurations
         succeeds "dependencies", "test", "jacocoTestReport"
+    }
+
+    @Issue("GRADLE-3498")
+    void "can use different execution data"() {
+        setup:
+        buildFile << """
+        test {
+            jacoco {
+                append = false
+                destinationFile = file("\$buildDir/tmp/jacoco/jacocoTest.exec")
+                classDumpFile = file("\$buildDir/tmp/jacoco/classpathdumps")
+            }
+        }
+
+        jacocoTestReport {
+            reports {
+                xml.enabled false
+                csv.enabled false
+                html.destination "\${buildDir}/reports/jacoco/integ"
+            }
+            executionData test
+        }
+        """.stripIndent()
+
+        when:
+        succeeds 'test', 'jacocoTestReport'
+
+        then:
+        ':jacocoTestReport' in nonSkippedTasks
     }
 
     private JacocoReportFixture htmlReport(String basedir = "${REPORTING_BASE}/jacoco/test/html") {

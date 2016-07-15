@@ -17,26 +17,24 @@
 package org.gradle.play.internal.run;
 
 import org.gradle.api.GradleException;
-import org.gradle.internal.Factory;
 import org.gradle.process.internal.JavaExecHandleBuilder;
-import org.gradle.process.internal.WorkerProcess;
-import org.gradle.process.internal.WorkerProcessBuilder;
+import org.gradle.process.internal.worker.WorkerProcess;
+import org.gradle.process.internal.worker.WorkerProcessBuilder;
+import org.gradle.process.internal.worker.WorkerProcessFactory;
 
 import java.io.File;
 
 public class PlayApplicationRunner {
-    private final File workingDir;
-    private final Factory<WorkerProcessBuilder> workerFactory;
+    private final WorkerProcessFactory workerFactory;
     private final VersionedPlayRunAdapter adapter;
 
-    public PlayApplicationRunner(File workingDir, Factory<WorkerProcessBuilder> workerFactory, VersionedPlayRunAdapter adapter) {
-        this.workingDir = workingDir;
+    public PlayApplicationRunner(WorkerProcessFactory workerFactory, VersionedPlayRunAdapter adapter) {
         this.workerFactory = workerFactory;
         this.adapter = adapter;
     }
 
     public PlayApplicationRunnerToken start(PlayRunSpec spec) {
-        WorkerProcess process = createWorkerProcess(workingDir, workerFactory, spec, adapter);
+        WorkerProcess process = createWorkerProcess(spec.getProjectPath(), workerFactory, spec, adapter);
         process.start();
 
         PlayWorkerClient clientCallBack = new PlayWorkerClient();
@@ -45,21 +43,21 @@ public class PlayApplicationRunner {
         process.getConnection().connect();
         PlayAppLifecycleUpdate result = clientCallBack.waitForRunning();
         if (result.isRunning()) {
-            return new PlayApplicationRunnerToken(workerServer, clientCallBack);
+            return new PlayApplicationRunnerToken(workerServer, clientCallBack, process);
         } else {
             throw new GradleException("Unable to start Play application.", result.getException());
         }
     }
 
-    private static WorkerProcess createWorkerProcess(File workingDir, Factory<WorkerProcessBuilder> workerFactory, PlayRunSpec spec, VersionedPlayRunAdapter adapter) {
-        WorkerProcessBuilder builder = workerFactory.create();
+    private static WorkerProcess createWorkerProcess(File workingDir, WorkerProcessFactory workerFactory, PlayRunSpec spec, VersionedPlayRunAdapter adapter) {
+        WorkerProcessBuilder builder = workerFactory.create(new PlayWorkerServer(spec, adapter));
         builder.setBaseName("Gradle Play Worker");
-        builder.applicationClasspath(spec.getClasspath());
-        builder.sharedPackages("org.gradle.play.internal.run", "play.core", "play.core.server", "play.docs", "scala");
+        builder.sharedPackages("org.gradle.play.internal.run");
         JavaExecHandleBuilder javaCommand = builder.getJavaCommand();
         javaCommand.setWorkingDir(workingDir);
         javaCommand.setMinHeapSize(spec.getForkOptions().getMemoryInitialSize());
         javaCommand.setMaxHeapSize(spec.getForkOptions().getMemoryMaximumSize());
-        return builder.worker(new PlayWorkerServer(spec, adapter)).build();
+        javaCommand.setJvmArgs(spec.getForkOptions().getJvmArgs());
+        return builder.build();
     }
 }

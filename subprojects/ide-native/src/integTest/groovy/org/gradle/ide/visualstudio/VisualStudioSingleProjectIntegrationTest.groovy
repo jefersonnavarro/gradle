@@ -23,9 +23,8 @@ import org.gradle.internal.os.OperatingSystem
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
 import org.gradle.nativeplatform.fixtures.RequiresInstalledToolChain
 import org.gradle.nativeplatform.fixtures.app.*
-import spock.lang.Ignore
 
-import static org.gradle.nativeplatform.fixtures.ToolChainRequirement.VisualCpp
+import static org.gradle.nativeplatform.fixtures.ToolChainRequirement.VISUALCPP
 
 class VisualStudioSingleProjectIntegrationTest extends AbstractInstalledToolChainIntegrationSpec {
     private final Set<String> projectConfigurations = ['win32Debug', 'win32Release', 'x64Debug', 'x64Release'] as Set
@@ -88,8 +87,8 @@ model {
         projectFile.projectConfigurations.values().each {
             assert it.macros == "TEST;foo=bar"
             assert it.includePath == filePath("src/main/headers")
-            assert it.buildCommand == "gradle :install${it.name.capitalize()}MainExecutable"
-            assert it.outputFile == OperatingSystem.current().getExecutableName("build/install/mainExecutable/${it.name}/lib/main")
+            assert it.buildCommand == "gradle :installMain${it.name.capitalize()}Executable"
+            assert it.outputFile == OperatingSystem.current().getExecutableName("build/install/main/${it.outputDir}/lib/main")
         }
 
         and:
@@ -120,8 +119,8 @@ model {
         projectFile.projectConfigurations.keySet() == projectConfigurations
         projectFile.projectConfigurations.values().each {
             assert it.includePath == filePath("src/main/headers")
-            assert it.buildCommand == "gradle :${it.name}MainSharedLibrary"
-            assert it.outputFile == OperatingSystem.current().getSharedLibraryName("build/binaries/mainSharedLibrary/${it.name}/main")
+            assert it.buildCommand == "gradle :main${it.name.capitalize()}SharedLibrary"
+            assert it.outputFile == OperatingSystem.current().getSharedLibraryName("build/libs/main/shared/${it.outputDir}/main")
         }
 
         and:
@@ -158,7 +157,6 @@ model {
         mainSolution.assertReferencesProject(projectFile, projectConfigurations)
     }
 
-    @Ignore
     def "lifecycle task creates visual studio solution for buildable static and shared libraries"() {
         when:
         app.library.writeSources(file("src/main"))
@@ -168,7 +166,7 @@ model {
         both(NativeLibrarySpec)
         staticOnly(NativeLibrarySpec) {
             binaries.withType(SharedLibraryBinarySpec) {
-                buildable false
+                buildable = false
             }
         }
     }
@@ -185,7 +183,6 @@ model {
         file("staticOnlyDll.sln").assertDoesNotExist()
     }
 
-    @Ignore
     def "create visual studio solution for defined static library"() {
         when:
         app.library.writeSources(file("src/main"))
@@ -587,7 +584,7 @@ model {
         solutionFile("mainExe.sln").assertHasProjects("mainExe")
     }
 
-    @RequiresInstalledToolChain(VisualCpp)
+    @RequiresInstalledToolChain(VISUALCPP)
     def "generate visual studio solution for executable with windows resource files"() {
         given:
         def resourceApp = new WindowsResourceHelloWorldApp()
@@ -600,10 +597,12 @@ model {
     components {
         main(NativeExecutableSpec)
     }
-}
-binaries.all {
-    rcCompiler.define "TEST"
-    rcCompiler.define "foo", "bar"
+    binaries {
+        all {
+            rcCompiler.define "TEST"
+            rcCompiler.define "foo", "bar"
+        }
+    }
 }
 """
 
@@ -811,6 +810,49 @@ model {
         with (mainExeProject.projectConfigurations['win32Debug']) {
             includePath == filePath("src/main/headers", "libs/test/include")
         }
+    }
+
+    def "visual studio solution for executable that depends on library using precompiled header"() {
+        when:
+        app = new CppHelloWorldApp()
+        app.executable.writeSources(file("src/main"))
+        app.library.writeSources(file("src/hello"))
+        buildFile << """
+            model {
+                components {
+                    hello(NativeLibrarySpec) {
+                        sources {
+                            cpp.preCompiledHeader "pch.h"
+                        }
+                    }
+                    main(NativeExecutableSpec) {
+                        sources {
+                            cpp.lib library: 'hello'
+                        }
+                    }
+                }
+            }
+        """
+        and:
+        run "mainVisualStudio"
+
+        then:
+        final exeProject = projectFile("mainExe.vcxproj")
+        exeProject.assertHasComponentSources(app.executable, "src/main")
+        exeProject.projectConfigurations.keySet() == projectConfigurations
+        exeProject.projectConfigurations['win32Debug'].includePath == filePath("src/main/headers", "src/hello/headers")
+
+        and:
+        final dllProject = projectFile("helloDll.vcxproj")
+        dllProject.assertHasComponentSources(app.library, "src/hello")
+        dllProject.projectConfigurations.keySet() == projectConfigurations
+        dllProject.projectConfigurations['win32Debug'].includePath == filePath("src/hello/headers")
+
+        and:
+        final mainSolution = solutionFile("mainExe.sln")
+        mainSolution.assertHasProjects("mainExe", "helloDll")
+        mainSolution.assertReferencesProject(exeProject, projectConfigurations)
+        mainSolution.assertReferencesProject(dllProject, projectConfigurations)
     }
 
     def "visual studio solution for component graph with library dependency cycle"() {

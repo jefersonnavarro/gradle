@@ -21,7 +21,7 @@ import org.gradle.test.fixtures.file.TestFile
 interface MavenModule extends Module {
     /**
      * Publishes the pom.xml plus main artifact, plus any additional artifacts for this module. Publishes only those artifacts whose content has
-     * changed since the last call to {@code #publish()}.
+     * changed since the last call to {@code # publish ( )}.
      */
     MavenModule publish()
 
@@ -40,9 +40,13 @@ interface MavenModule extends Module {
 
     MavenModule parent(String group, String artifactId, String version)
 
+    MavenModule dependsOnModules(String... dependencyArtifactIds)
+
+    MavenModule dependsOn(MavenModule module)
+
     MavenModule dependsOn(String group, String artifactId, String version)
 
-    MavenModule dependsOn(String group, String artifactId, String version, String type)
+    MavenModule dependsOn(String group, String artifactId, String version, String type, String scope, String classifier)
 
     MavenModule hasPackaging(String packaging)
 
@@ -50,6 +54,19 @@ interface MavenModule extends Module {
      * Sets the type of the main artifact for this module.
      */
     MavenModule hasType(String type)
+
+    /**
+     * Asserts exactly pom and jar published, along with checksums.
+     */
+    void assertPublishedAsJavaModule()
+
+    String getPublishArtifactVersion()
+
+    String getGroupId()
+
+    String getArtifactId()
+
+    String getVersion()
 
     TestFile getPomFile()
 

@@ -16,18 +16,40 @@
 
 package org.gradle.plugins.ide.internal.resolver.model;
 
-import org.gradle.api.Project;
-import org.gradle.api.artifacts.Configuration;
+import org.gradle.api.artifacts.component.ProjectComponentIdentifier;
 
 public class IdeProjectDependency extends IdeDependency {
-    private final Project project;
+    private final ProjectComponentIdentifier projectId;
+    private final String projectName;
 
-    public IdeProjectDependency(Configuration declaredConfiguration, Project project) {
-        super(declaredConfiguration);
-        this.project = project;
+    public IdeProjectDependency(ProjectComponentIdentifier projectId, String projectName) {
+        this.projectId = projectId;
+        this.projectName = projectName;
     }
 
-    public Project getProject() {
-        return project;
+    public IdeProjectDependency(ProjectComponentIdentifier projectId) {
+        this.projectId = projectId;
+        this.projectName = determineNameFromPath(projectId.getProjectPath());
+    }
+
+    public ProjectComponentIdentifier getProjectId() {
+        return projectId;
+    }
+
+    public String getProjectPath() {
+        return projectId.getProjectPath();
+    }
+
+    public String getProjectName() {
+        return projectName;
+    }
+
+    private static String determineNameFromPath(String projectPath) {
+        // TODO:DAZ This is less than ideal (currently only used for composite build dependencies)
+        if (projectPath.endsWith("::")) {
+            return projectPath.substring(0, projectPath.length() - 2);
+        }
+        int index = projectPath.lastIndexOf(':');
+        return projectPath.substring(index + 1);
     }
 }

@@ -15,14 +15,12 @@
  */
 
 package org.gradle.internal.resource.transport.aws.s3
-import org.apache.commons.io.IOUtils
-import org.gradle.internal.hash.HashValue
-import org.jets3t.service.model.S3Object
+
+import com.amazonaws.services.s3.model.ObjectMetadata
+import com.amazonaws.services.s3.model.S3Object
 import spock.lang.Specification
 
 class S3ResourceConnectorTest extends Specification {
-
-    public static final String SHA1_STRING = "06e7d22787ee800ce4c9a2b5e94805aee4d7f1f9"
     URI uri = new URI("http://somewhere")
 
     def "should list resources"() {
@@ -30,53 +28,21 @@ class S3ResourceConnectorTest extends Specification {
         when:
         new S3ResourceConnector(s3Client).list(uri)
         then:
-        1 * s3Client.list(uri)
+        1 * s3Client.listDirectChildren(uri)
     }
 
     def "should get a resource"() {
+        ObjectMetadata objectMetadata = Mock()
         S3Client s3Client = Mock {
-            1 * getResource(uri) >> Mock(S3Object)
-        }
-        when:
-        S3Resource s3Resource = new S3ResourceConnector(s3Client).getResource(uri)
-        then:
-        s3Resource.getURI() == uri
-    }
-
-    def "should get a resource sha1"() {
-        given:
-        URI shaUri = new URI(uri.toString() + ".sha1")
-        S3Object s3Object = Mock()
-        InputStream s3ObjectInputStream = IOUtils.toInputStream(SHA1_STRING)
-        s3Object.getDataInputStream() >> s3ObjectInputStream
-
-        S3Client s3Client = Mock()
-        1 * s3Client.getResource(_) >> { URI u ->
-            assert u == shaUri
-            return s3Object
+            1 * getResource(uri) >> Mock(S3Object) {
+                getObjectMetadata() >> objectMetadata
+            }
         }
 
         when:
-        S3ResourceConnector connector = new S3ResourceConnector(s3Client)
-        HashValue sha1 = connector.getResourceSha1(uri)
+        def s3Resource = new S3ResourceConnector(s3Client).openResource(uri)
 
         then:
-        sha1.asHexString() == SHA1_STRING.substring(1, SHA1_STRING.length())
-    }
-
-    def "should return a null resource sha1 when sha cannot be read from input stream"() {
-        given:
-        S3Object s3Object = Mock()
-        s3Object.getDataInputStream() >> Mock(InputStream)
-
-        S3Client s3Client = Mock()
-        1 * s3Client.getResource(_) >> s3Object
-
-        when:
-        S3ResourceConnector connector = new S3ResourceConnector(s3Client)
-        HashValue sha1 = connector.getResourceSha1(uri)
-
-        then:
-        sha1 == null
+        s3Resource != null
     }
 }

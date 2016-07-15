@@ -24,16 +24,13 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Declares that a custom {@link org.gradle.platform.base.ComponentSpec} type.
+ * Declares a custom {@link org.gradle.platform.base.ComponentSpec} type.
  *
  * The following example demonstrates how to register a custom component type using a plugin with a
  * {@link ComponentType} annotation.
  * Furthermore the plugin creates an instance of SampleComponent named 'sampleComponent'.
  *
  * <pre autoTested='true'>
- * import org.gradle.model.*
- * import org.gradle.model.collection.*
- *
  * interface SampleComponent extends ComponentSpec {}
  * class DefaultSampleComponent extends BaseComponentSpec implements SampleComponent {}
  *
@@ -41,12 +38,12 @@ import java.lang.annotation.Target;
  *
  * class MySamplePlugin extends RuleSource {
  *     {@literal @}ComponentType
- *     void register(ComponentTypeBuilder<SampleComponent> builder) {
+ *     void register(TypeBuilder&lt;SampleComponent&gt; builder) {
  *         builder.defaultImplementation(DefaultSampleComponent)
  *     }
  *
  *     {@literal @}Mutate
- *     void createSampleLibraryComponents(CollectionBuilder<SampleComponent> componentSpecs) {
+ *     void createSampleLibraryComponents(ModelMap&lt;SampleComponent&gt; componentSpecs) {
  *         componentSpecs.create("sampleComponent")
  *     }
  * }

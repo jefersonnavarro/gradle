@@ -184,12 +184,11 @@
         </varlistentry>
         <varlistentry>
             <term>
-                <option>--parallel-threads (incubating)</option>
+                <option>--max-workers (incubating)</option>
             </term>
             <listitem>
                 <para>
-                    Build projects in parallel, using the specified number of executor threads. For example<literal>--parallel-threads=3</literal>.
-                    This option should only be used with decoupled projects (see <xref linkend="sec:decoupled_projects"/>).
+                    Sets the maximum number of workers that Gradle may use. For example<literal>--max-workers=3</literal>.  The default is the number of processors.
                 </para>
             </listitem>
         </varlistentry>
@@ -210,8 +209,7 @@
             </term>
             <listitem>
                 <para>Specifies the project-specific cache directory. Default value is
-                    <filename>.gradle</filename>
-                    in the root project directory. See <xref linkend="sec:caching"/>.
+                    <filename>.gradle</filename> in the root project directory.
                 </para>
             </listitem>
         </varlistentry>
@@ -228,9 +226,7 @@
                 <option>--recompile-scripts</option>
             </term>
             <listitem>
-                <para>Specifies that cached build scripts are skipped and forced to be recompiled.
-                    See <xref linkend="sec:caching"/>.
-                </para>
+                <para>Forces scripts to be recompiled, bypassing caching.</para>
             </listitem>
         </varlistentry>
         <varlistentry>
@@ -269,6 +265,14 @@
             </listitem>
         </varlistentry>
         <varlistentry>
+            <term>
+                <option>-t</option>, <option>--continuous (incubating)</option>
+            </term>
+            <listitem>
+                <para>Enables <link linkend="continuous_build">continuous building</link> - Gradle will automatically re-run when changes are detected.</para>
+            </listitem>
+        </varlistentry>
+        <varlistentry>
             <term><option>-u</option>, <option>--no-search-upwards</option>
             </term>
             <listitem>
@@ -298,21 +302,7 @@
     <para>The above information is printed to the console when you execute <userinput>gradle -h</userinput>.
     </para>
 
-    <section>
-        <title>Deprecated command-line options</title>
-        <variablelist>
-            <varlistentry>
-                <term>
-                    <option>--no-color</option>
-                </term>
-                <listitem>
-                    <para>Do not use color in the console output. This option has been replaced by the <option>--console plain</option> option.</para>
-                </listitem>
-            </varlistentry>
-        </variablelist>
-    </section>
-
-    <section id='daemon_cli'>
+    <section id="daemon_cli">
         <title>Daemon command-line options</title>
         <para>The
             <xref linkend="gradle_daemon"/>
@@ -370,7 +360,7 @@
         </variablelist>
     </section>
 
-    <section>
+    <section id="sec:cli_system_properties">
         <title>System properties</title>
         <para>The following system properties are available for the
             <command>gradle</command>
@@ -392,7 +382,7 @@
         </para>
     </section>
 
-    <section>
+    <section id="sec:cli_environment_variables">
         <title>Environment variables</title>
         <para>The following environment variables are available for the
             <command>gradle</command>

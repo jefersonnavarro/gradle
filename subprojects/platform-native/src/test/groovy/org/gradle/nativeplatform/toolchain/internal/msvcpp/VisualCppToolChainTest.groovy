@@ -40,11 +40,11 @@ class VisualCppToolChainTest extends Specification {
     final BuildOperationProcessor buildOperationProcessor = Stub(BuildOperationProcessor)
     final VisualStudioLocator.SearchResult visualStudioLookup = Stub(VisualStudioLocator.SearchResult)
     final WindowsSdkLocator.SearchResult windowsSdkLookup = Stub(WindowsSdkLocator.SearchResult)
-    final Instantiator instantiator = new DirectInstantiator()
+    final Instantiator instantiator = DirectInstantiator.INSTANCE
     VisualCppToolChain toolChain
 
     final VisualStudioLocator visualStudioLocator = Stub(VisualStudioLocator) {
-        locateVisualStudioInstalls(_) >> visualStudioLookup
+        locateDefaultVisualStudioInstall(_) >> visualStudioLookup
     }
     final WindowsSdkLocator windowsSdkLocator = Stub(WindowsSdkLocator) {
         locateWindowsSdks(_) >> windowsSdkLookup
@@ -147,7 +147,7 @@ class VisualCppToolChainTest extends Specification {
 
         and:
         fileResolver.resolve("install-dir") >> file("vs")
-        visualStudioLocator.locateVisualStudioInstalls(file("vs")) >> visualStudioLookup
+        visualStudioLocator.locateDefaultVisualStudioInstall(file("vs")) >> visualStudioLookup
         visualStudioLookup.available >> true
 
         and:

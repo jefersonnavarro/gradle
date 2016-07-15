@@ -30,7 +30,12 @@ public class NotFoundScalaToolProvider implements ToolProvider {
     }
 
     @Override
-    public <T extends CompileSpec> org.gradle.language.base.internal.compile.Compiler<T> newCompiler(T spec) {
+    public <T extends CompileSpec> org.gradle.language.base.internal.compile.Compiler<T> newCompiler(Class<T> spec) {
+        throw failure();
+    }
+
+    @Override
+    public <T> T get(Class<T> toolType) {
         throw failure();
     }
 
@@ -42,7 +47,7 @@ public class NotFoundScalaToolProvider implements ToolProvider {
     private RuntimeException failure() {
         TreeFormatter formatter = new TreeFormatter();
         this.explain(formatter);
-        return new GradleException(formatter.toString());
+        return new GradleException(formatter.toString(), exception);
     }
 
     @Override

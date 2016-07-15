@@ -16,7 +16,12 @@
 
 package org.gradle.test.fixtures.file
 
-import org.objectweb.asm.*
+import org.gradle.api.JavaVersion
+import org.objectweb.asm.ClassReader
+import org.objectweb.asm.ClassVisitor
+import org.objectweb.asm.Label
+import org.objectweb.asm.MethodVisitor
+import org.objectweb.asm.Opcodes
 
 class ClassFile {
     boolean hasSourceFile
@@ -56,7 +61,20 @@ class ClassFile {
                 hasSourceFile = true
             }
         }
-        new ClassReader(inputStream).accept(visitor, 0)
+        byte[] classData = inputStream.bytes
+        boolean isJava9 = JavaVersion.forClass(classData) == JavaVersion.VERSION_1_9
+        if (isJava9) {
+            // TODO:CC remove this fix once ASM 6 is out
+            classData[7] = 52
+        }
+        new ClassReader(classData).accept(visitor, 0)
+        if (isJava9) {
+            classFileVersion = 53
+        }
+    }
+
+    JavaVersion getJavaVersion() {
+        return JavaVersion.forClassVersion(classFileVersion)
     }
 
     boolean getDebugIncludesSourceFile() {

@@ -32,7 +32,6 @@ public class ParallelProjectExecutionIntegrationTest extends AbstractIntegration
 
         settingsFile << 'include "a", "b", "c", "d"'
         buildFile << """
-assert gradle.startParameter.parallelThreadCount != 0
 allprojects {
     tasks.addRule("ping<>") { String name ->
         if (name.startsWith("ping")) {
@@ -46,7 +45,8 @@ allprojects {
     }
 }
 """
-        executer.withArgument('--parallel-threads=3') // needs to be set to the maximum number of expectConcurrentExecution() calls
+        executer.withArgument('--parallel')
+        executer.withArgument('--max-workers=3') // needs to be set to the maximum number of expectConcurrentExecution() calls
         executer.withArgument('--info')
     }
 

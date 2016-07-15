@@ -20,11 +20,11 @@ import org.gradle.api.internal.artifacts.ivyservice.CacheLockingManager;
 import org.gradle.internal.resource.cached.CachedItem;
 import org.gradle.cache.PersistentIndexedCache;
 import org.gradle.internal.Factory;
-import org.gradle.messaging.serialize.Serializer;
+import org.gradle.internal.serialize.Serializer;
 
 import java.io.File;
 
-abstract public class AbstractCachedIndex<K, V extends CachedItem> {
+public abstract class AbstractCachedIndex<K, V extends CachedItem> {
     private final String persistentCacheFile;
     private final Serializer<K> keySerializer;
     private final Serializer<V> valueSerializer;
@@ -52,7 +52,7 @@ abstract public class AbstractCachedIndex<K, V extends CachedItem> {
     }
 
     private String operationName(String action) {
-        return String.format("%s artifact resolution cache '%s'", action, persistentCacheFile);
+        return action + " artifact resolution cache '" + persistentCacheFile + "'";
     }
 
     public V lookup(final K key) {

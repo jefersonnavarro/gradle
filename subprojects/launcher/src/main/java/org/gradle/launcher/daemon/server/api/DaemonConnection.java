@@ -21,7 +21,7 @@ import org.gradle.internal.concurrent.Stoppable;
 import org.gradle.launcher.daemon.protocol.BuildStarted;
 import org.gradle.launcher.daemon.protocol.DaemonUnavailable;
 import org.gradle.launcher.daemon.protocol.Result;
-import org.gradle.logging.internal.OutputEvent;
+import org.gradle.internal.logging.events.OutputEvent;
 
 import java.util.concurrent.TimeUnit;
 
@@ -84,6 +84,11 @@ public interface DaemonConnection extends Stoppable {
      * Dispatches a log event message to the client.
      */
     void logEvent(OutputEvent logEvent);
+
+    /**
+     * Dispatches some build event to the client.
+     */
+    void event(Object event);
 
     /**
      * Dispatches the given result to the client.

@@ -79,6 +79,10 @@ try {
     assert false: 'should fail'
 } catch (ClassNotFoundException e) {
     // expected
+} finally {
+    if (initscript.classLoader instanceof Closeable) {
+        initscript.classLoader.close()
+    }
 }
 """
 

@@ -17,13 +17,9 @@
 package org.gradle.api.internal.jvm;
 
 import org.gradle.api.Nullable;
-import org.gradle.platform.base.internal.BinaryNamingScheme;
 import org.gradle.util.GUtil;
 
-import java.util.Collections;
-import java.util.List;
-
-class ClassDirectoryBinaryNamingScheme implements BinaryNamingScheme {
+public class ClassDirectoryBinaryNamingScheme {
     private final String baseName;
     private final String collapsedName;
 
@@ -37,19 +33,15 @@ class ClassDirectoryBinaryNamingScheme implements BinaryNamingScheme {
     }
 
     public String getDescription() {
-        return String.format("classes '%s'", baseName);
-    }
-
-    public List<String> getVariantDimensions() {
-        return Collections.emptyList();
+        return "classes '" + baseName + "'";
     }
 
     public String getBaseName() {
         return baseName;
     }
 
-    public String getLifecycleTaskName() {
-        return getTaskName(null, "classes");
+    public String getBinaryName() {
+        return baseName;
     }
 
     public String getTaskName(@Nullable String verb) {
@@ -61,7 +53,7 @@ class ClassDirectoryBinaryNamingScheme implements BinaryNamingScheme {
         if (target != null) {
             name = collapsedName;
         }
-        return GUtil.toLowerCamelCase(String.format("%s %s %s", nullToEmpty(verb), name, nullToEmpty(target)));
+        return GUtil.toLowerCamelCase(nullToEmpty(verb) + " " + name + " " + nullToEmpty(target));
     }
 
     private String nullToEmpty(String input) {

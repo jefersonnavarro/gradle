@@ -15,55 +15,94 @@
  */
 package org.gradle.api.internal.artifacts.ivyservice.projectmodule
 
-import org.apache.ivy.core.module.descriptor.DependencyDescriptor
-import org.gradle.api.internal.artifacts.ivyservice.LocalComponentFactory
-import org.gradle.internal.component.external.model.ModuleComponentResolveMetaData
+import org.gradle.api.artifacts.component.ComponentIdentifier
+import org.gradle.internal.component.local.model.DefaultProjectComponentIdentifier
 import org.gradle.internal.component.local.model.DefaultProjectComponentSelector
-import org.gradle.internal.component.local.model.MutableLocalComponentMetaData
-import org.gradle.internal.component.local.model.ProjectDependencyMetaData
-import org.gradle.internal.component.model.DependencyMetaData
-import org.gradle.internal.resolve.resolver.DependencyToComponentIdResolver
+import org.gradle.internal.component.local.model.LocalComponentMetadata
+import org.gradle.internal.component.model.ComponentOverrideMetadata
+import org.gradle.internal.component.model.DefaultComponentOverrideMetadata
+import org.gradle.internal.component.model.DependencyMetadata
+import org.gradle.internal.resolve.ModuleVersionResolveException
 import org.gradle.internal.resolve.result.BuildableComponentIdResolveResult
+import org.gradle.internal.resolve.result.BuildableComponentResolveResult
 import spock.lang.Specification
 
 class ProjectDependencyResolverTest extends Specification {
-    final ProjectComponentRegistry registry = Mock()
-    final DependencyToComponentIdResolver target = Mock()
-    final LocalComponentFactory converter = Mock()
-    final ProjectDependencyResolver resolver = new ProjectDependencyResolver(registry, converter, target)
+    final LocalComponentRegistry registry = Mock()
+    final ProjectDependencyResolver resolver = new ProjectDependencyResolver(registry, [])
 
     def "resolves project dependency"() {
         setup:
-        def resolveMetaData = Stub(ModuleComponentResolveMetaData)
-        def componentMetaData = Stub(MutableLocalComponentMetaData) {
-            toResolveMetaData() >> resolveMetaData
-        }
+        def componentMetaData = Mock(LocalComponentMetadata)
         def result = Mock(BuildableComponentIdResolveResult)
-        def dependencyMetaData = Stub(ProjectDependencyMetaData) {
+        def dependencyMetaData = Stub(DependencyMetadata) {
             getSelector() >> DefaultProjectComponentSelector.newSelector(":project")
         }
+        def id = DefaultProjectComponentIdentifier.newId(":project")
 
         when:
         resolver.resolve(dependencyMetaData, result)
 
         then:
-        1 * registry.getProject(":project") >> componentMetaData
-        1 * result.resolved(resolveMetaData)
+        1 * registry.getComponent(id) >> componentMetaData
+        1 * result.resolved(componentMetaData)
         0 * result._
     }
 
-    def "delegates to backing resolver for non-project dependency"() {
+    def "resolves project component"() {
+        setup:
+        def componentMetaData = Mock(LocalComponentMetadata)
+        def result = Mock(BuildableComponentResolveResult)
+        def projectComponentId = new DefaultProjectComponentIdentifier(":projectPath")
+
+        when:
+        resolver.resolve(projectComponentId, new DefaultComponentOverrideMetadata(), result)
+
+        then:
+        1 * registry.getComponent(projectComponentId) >> componentMetaData
+        1 * result.resolved(componentMetaData)
+        0 * result._
+    }
+
+    def "doesn't try to resolve non-project dependency"() {
         def result = Mock(BuildableComponentIdResolveResult)
-        def dependencyDescriptor = Stub(DependencyDescriptor)
-        def dependencyMetaData = Stub(DependencyMetaData) {
-            getDescriptor() >> dependencyDescriptor
-        }
+        def dependencyMetaData = Stub(DependencyMetadata)
 
         when:
         resolver.resolve(dependencyMetaData, result)
 
         then:
-        1 * target.resolve(dependencyMetaData, result)
+        0 * registry.getComponent(_)
+        0 * _
+    }
+
+    def "doesn't try to resolve non-project identifier"() {
+        def result = Mock(BuildableComponentResolveResult)
+        def componentIdentifier = Mock(ComponentIdentifier)
+        def overrideMetaData = Mock(ComponentOverrideMetadata)
+
+        when:
+        resolver.resolve(componentIdentifier, overrideMetaData, result)
+
+        then:
+        0 * registry.getComponent(_)
+        0 * _
+    }
+
+    def "adds failure to resolution result if project does not exist"() {
+        def result = Mock(BuildableComponentResolveResult)
+        def componentIdentifier = new DefaultProjectComponentIdentifier(":doesnotexist")
+        def overrideMetaData = Mock(ComponentOverrideMetadata)
+
+        when:
+        registry.getComponent(_) >> null
+        and:
+        resolver.resolve(componentIdentifier, overrideMetaData, result)
+
+        then:
+        1 * result.failed(_) >> { ModuleVersionResolveException failure ->
+            assert failure.message == "project ':doesnotexist' not found."
+        }
         0 * _
     }
 }

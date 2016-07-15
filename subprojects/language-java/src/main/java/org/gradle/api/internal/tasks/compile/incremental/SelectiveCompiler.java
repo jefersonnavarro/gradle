@@ -47,6 +47,7 @@ class SelectiveCompiler implements org.gradle.language.base.internal.compile.Com
         this.jarClasspathSnapshotProvider = jarClasspathSnapshotProvider;
     }
 
+    @Override
     public WorkResult execute(JavaCompileSpec spec) {
         Clock clock = new Clock();
         JarClasspathSnapshot jarClasspathSnapshot = jarClasspathSnapshotProvider.getJarClasspathSnapshot(spec.getClasspath());
@@ -59,7 +60,7 @@ class SelectiveCompiler implements org.gradle.language.base.internal.compile.Com
 
         incrementalCompilationInitilizer.initializeCompilation(spec, recompilationSpec.getClassNames());
         if (spec.getSource().isEmpty()) {
-            LOG.lifecycle("None of the classes needs to compiled! Analysis took {}. ", clock.getTime());
+            LOG.lifecycle("None of the classes needs to be compiled! Analysis took {}. ", clock.getTime());
             return new RecompilationNotNecessary();
         }
 

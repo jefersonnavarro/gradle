@@ -17,94 +17,113 @@
 package org.gradle.platform.base.internal.registry;
 
 import com.google.common.collect.ImmutableList;
+import org.gradle.api.Action;
+import org.gradle.api.Nullable;
 import org.gradle.api.Task;
-import org.gradle.api.tasks.TaskContainer;
-import org.gradle.language.base.plugins.ComponentModelBasePlugin;
-import org.gradle.model.InvalidModelRuleDeclarationException;
+import org.gradle.api.internal.project.taskfactory.ITaskFactory;
+import org.gradle.internal.Cast;
+import org.gradle.model.ModelMap;
 import org.gradle.model.internal.core.*;
-import org.gradle.model.internal.inspect.MethodRuleDefinition;
+import org.gradle.model.internal.inspect.*;
 import org.gradle.model.internal.type.ModelType;
 import org.gradle.platform.base.BinaryContainer;
 import org.gradle.platform.base.BinarySpec;
 import org.gradle.platform.base.BinaryTasks;
-import org.gradle.platform.base.InvalidModelException;
+import org.gradle.platform.base.plugins.BinaryBasePlugin;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.gradle.model.internal.core.NodePredicate.allLinks;
 
 public class BinaryTasksModelRuleExtractor extends AbstractAnnotationDrivenComponentModelRuleExtractor<BinaryTasks> {
+    private static final ModelType<BinarySpec> BINARY_SPEC = ModelType.of(BinarySpec.class);
+    private static final ModelType<ITaskFactory> TASK_FACTORY = ModelType.of(ITaskFactory.class);
+    private static final ModelType<Task> TASK = ModelType.of(Task.class);
+    private static final ModelReference<BinaryContainer> BINARIES_CONTAINER = ModelReference.of("binaries", ModelType.of(BinaryContainer.class));
 
-    public <R, S> ExtractedModelRule registration(MethodRuleDefinition<R, S> ruleDefinition) {
-        return createRegistration(ruleDefinition);
+    @Nullable
+    @Override
+    public <R, S> ExtractedModelRule registration(MethodRuleDefinition<R, S> ruleDefinition, MethodModelRuleExtractionContext context) {
+        return createRegistration(ruleDefinition, context);
     }
 
-    private <R, S extends BinarySpec> ExtractedModelRule createRegistration(MethodRuleDefinition<R, ?> ruleDefinition) {
-        try {
-            RuleMethodDataCollector dataCollector = new RuleMethodDataCollector();
-            verifyMethodSignature(dataCollector, ruleDefinition);
+    private <R, S extends BinarySpec> ExtractedModelRule createRegistration(final MethodRuleDefinition<R, ?> ruleDefinition, RuleSourceValidationProblemCollector problems) {
+        RuleMethodDataCollector dataCollector = new RuleMethodDataCollector();
+        verifyMethodSignature(dataCollector, ruleDefinition, problems);
+        if (problems.hasProblems()) {
+            return null;
+        }
 
-            Class<S> binaryType = dataCollector.getParameterType(BinarySpec.class);
-            ModelReference<TaskContainer> tasks = ModelReference.of(ModelPath.path("tasks"), ModelType.of(TaskContainer.class));
+        ModelType<S> binaryType = dataCollector.getParameterType(BINARY_SPEC);
+        return new ExtractedBinaryTasksRule<S>(ruleDefinition, binaryType);
+    }
 
-            BinaryTaskRule<R, S> binaryTaskRule = new BinaryTaskRule<R, S>(tasks, binaryType, ruleDefinition);
-            ImmutableList<ModelType<?>> dependencies = ImmutableList.<ModelType<?>>of(ModelType.of(ComponentModelBasePlugin.class));
-            return new ExtractedModelMutator(ModelActionRole.Mutate, binaryTaskRule, dependencies);
-        } catch (InvalidModelException e) {
-            throw invalidModelRule(ruleDefinition, e);
+    private void verifyMethodSignature(RuleMethodDataCollector taskDataCollector, MethodRuleDefinition<?, ?> ruleDefinition, RuleSourceValidationProblemCollector problems) {
+        validateIsVoidMethod(ruleDefinition, problems);
+        visitSubject(taskDataCollector, ruleDefinition, TASK, problems);
+        visitDependency(taskDataCollector, ruleDefinition, BINARY_SPEC, problems);
+    }
+
+    private static class BinaryTaskRule<T extends BinarySpec> extends ModelMapBasedRule<T, T> {
+
+        public BinaryTaskRule(ModelType<T> binaryType, MethodRuleDefinition<?, ?> ruleDefinition) {
+            super(ModelReference.of(binaryType), binaryType, ruleDefinition, ModelReference.of(TASK_FACTORY));
+        }
+
+        @Override
+        protected void execute(ModelRuleInvoker<?> invoker, final T binary, List<ModelView<?>> inputs) {
+            NamedEntityInstantiator<Task> taskFactory = Cast.uncheckedCast(ModelViews.getInstance(inputs.get(0), TASK_FACTORY));
+            ModelMap<Task> cast = DomainObjectCollectionBackedModelMap.wrap(
+                    "tasks",
+                    Task.class,
+                    binary.getTasks(),
+                    taskFactory,
+                    new Task.Namer(),
+                    new Action<Task>() {
+                        @Override
+                        public void execute(Task task) {
+                            binary.getTasks().add(task);
+                            binary.builtBy(task);
+                        }
+                    });
+
+            List<ModelView<?>> inputsWithBinary = new ArrayList<ModelView<?>>(inputs.size());
+            inputsWithBinary.addAll(inputs.subList(1, inputs.size()));
+            inputsWithBinary.add(InstanceModelView.of(getSubject().getPath(), getSubject().getType(), binary));
+
+            invoke(invoker, inputsWithBinary, cast, binary, binary);
         }
     }
 
-    private void verifyMethodSignature(RuleMethodDataCollector taskDataCollector, MethodRuleDefinition<?, ?> ruleDefinition) {
-        assertIsVoidMethod(ruleDefinition);
-        visitCollectionBuilderSubject(taskDataCollector, ruleDefinition, Task.class);
-        visitDependency(taskDataCollector, ruleDefinition, ModelType.of(BinarySpec.class));
-    }
+    private static class ExtractedBinaryTasksRule<T extends BinarySpec>  extends AbstractExtractedModelRule {
+        private final ModelType<T> binaryType;
 
-    //TODO extract common general method reusable by all AnnotationRuleDefinitionHandler
-    protected InvalidModelRuleDeclarationException invalidModelRule(MethodRuleDefinition<?, ?> ruleDefinition, InvalidModelException e) {
-        StringBuilder sb = new StringBuilder();
-        ruleDefinition.getDescriptor().describeTo(sb);
-        sb.append(" is not a valid BinaryTask model rule method.");
-        return new InvalidModelRuleDeclarationException(sb.toString(), e);
-    }
-
-    private class BinaryTaskRule<R, T extends BinarySpec> extends CollectionBuilderBasedRule<R, Task, T, TaskContainer> {
-
-        private final Class<T> binaryType;
-
-        public BinaryTaskRule(ModelReference<TaskContainer> subject, final Class<T> binaryType, MethodRuleDefinition<R, ?> ruleDefinition) {
-            super(subject, binaryType, ruleDefinition, ModelReference.of("binaries", BinaryContainer.class));
+        public ExtractedBinaryTasksRule(MethodRuleDefinition<?, ?> ruleDefinition, ModelType<T> binaryType) {
+            super(ruleDefinition);
             this.binaryType = binaryType;
         }
 
-        public void execute(MutableModelNode modelNode, TaskContainer container, Inputs inputs) {
-            BinaryContainer binaries = inputs.get(0, ModelType.of(BinaryContainer.class)).getInstance();
-            for (T binary : binaries.withType(binaryType)) {
-                NamedEntityInstantiator<Task> instantiator = new Instantiator(binary, container);
-                DefaultCollectionBuilder<Task> collectionBuilder = new DefaultCollectionBuilder<Task>(
-                        ModelType.of(Task.class),
-                        instantiator,
-                        container,
-                        getDescriptor(),
-                        modelNode
-                );
-
-                invoke(inputs, collectionBuilder, binary, binaries);
-            }
-        }
-    }
-
-    private class Instantiator implements NamedEntityInstantiator<Task> {
-        private final BinarySpec binarySpec;
-        private final TaskContainer container;
-
-        public Instantiator(BinarySpec binarySpec, TaskContainer container) {
-            this.binarySpec = binarySpec;
-            this.container = container;
+        @Override
+        public void apply(MethodModelRuleApplicationContext context, MutableModelNode target) {
+            MethodRuleDefinition<?, ?> ruleDefinition = getRuleDefinition();
+            final BinaryTaskRule<T> binaryTaskRule = new BinaryTaskRule<T>(binaryType, ruleDefinition);
+            final ModelAction binaryTaskAction = context.contextualize(binaryTaskRule);
+            context.getRegistry().configure(ModelActionRole.Defaults, DirectNodeNoInputsModelAction.of(
+                    BINARIES_CONTAINER,
+                    ruleDefinition.getDescriptor(),
+                    new Action<MutableModelNode>() {
+                        @Override
+                        public void execute(MutableModelNode modelNode) {
+                            modelNode.applyTo(allLinks(), ModelActionRole.Finalize, binaryTaskAction);
+                        }
+                    }
+            ));
         }
 
-        public <U extends Task> U create(String name, Class<U> type) {
-            U task = container.create(name, type);
-            binarySpec.builtBy(task);
-            binarySpec.getTasks().add(task);
-            return task;
+        @Override
+        public List<? extends Class<?>> getRuleDependencies() {
+            return ImmutableList.of(BinaryBasePlugin.class);
         }
     }
 }

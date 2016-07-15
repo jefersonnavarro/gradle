@@ -15,6 +15,7 @@
  */
 package org.gradle.tooling.internal.consumer;
 
+import org.gradle.api.Transformer;
 import org.gradle.tooling.GradleConnectionException;
 import org.gradle.tooling.ModelBuilder;
 import org.gradle.tooling.ResultHandler;
@@ -25,17 +26,18 @@ import org.gradle.tooling.internal.consumer.parameters.ConsumerOperationParamete
 import org.gradle.tooling.model.UnsupportedMethodException;
 import org.gradle.tooling.model.internal.Exceptions;
 
-import java.util.Arrays;
 import java.util.List;
 
 public class DefaultModelBuilder<T> extends AbstractLongRunningOperation<DefaultModelBuilder<T>> implements ModelBuilder<T> {
     private final Class<T> modelType;
     private final AsyncConsumerActionExecutor connection;
 
-    public DefaultModelBuilder(Class<T> modelType, AsyncConsumerActionExecutor connection, ConnectionParameters parameters) {
+    public DefaultModelBuilder(Class<T> modelType, AsyncConsumerActionExecutor connection, ProjectConnectionParameters parameters) {
         super(parameters);
         this.modelType = modelType;
         this.connection = connection;
+        operationParamsBuilder.setEntryPoint("ModelBuilder API");
+        operationParamsBuilder.setRootDirectory(parameters.getProjectDir());
     }
 
     @Override
@@ -55,9 +57,9 @@ public class DefaultModelBuilder<T> extends AbstractLongRunningOperation<Default
             public ConsumerOperationParameters getParameters() {
                 return operationParameters;
             }
-
             public T run(ConsumerConnection connection) {
-                return connection.run(modelType, operationParameters);
+                T model = connection.run(modelType, operationParameters);
+                return model;
             }
         }, new ResultHandlerAdapter<T>(handler));
     }
@@ -66,23 +68,29 @@ public class DefaultModelBuilder<T> extends AbstractLongRunningOperation<Default
         // only set a non-null task list on the operationParamsBuilder if at least one task has been given to this method,
         // this is needed since any non-null list, even if empty, is treated as 'execute these tasks before building the model'
         // this would cause an error when fetching the BuildEnvironment model
-        List<String> rationalizedTasks = tasks != null && tasks.length > 0 ? Arrays.asList(tasks) : null;
+        List<String> rationalizedTasks = rationalizeInput(tasks);
         operationParamsBuilder.setTasks(rationalizedTasks);
+        return this;
+    }
+
+    @Override
+    public ModelBuilder<T> forTasks(Iterable<String> tasks) {
+        operationParamsBuilder.setTasks(rationalizeInput(tasks));
         return this;
     }
 
     private class ResultHandlerAdapter<T> extends org.gradle.tooling.internal.consumer.ResultHandlerAdapter<T> {
         public ResultHandlerAdapter(ResultHandler<? super T> handler) {
-            super(handler);
-        }
-
-        @Override
-        protected String connectionFailureMessage(Throwable failure) {
-            String message = String.format("Could not fetch model of type '%s' using %s.", modelType.getSimpleName(), connection.getDisplayName());
-            if (!(failure instanceof UnsupportedMethodException) && failure instanceof UnsupportedOperationException) {
-                message += "\n" + Exceptions.INCOMPATIBLE_VERSION_HINT;
-            }
-            return message;
+            super(handler, new ExceptionTransformer(new Transformer<String, Throwable>() {
+                @Override
+                public String transform(Throwable failure) {
+                    String message = String.format("Could not fetch model of type '%s' using %s.", modelType.getSimpleName(), connection.getDisplayName());
+                    if (!(failure instanceof UnsupportedMethodException) && failure instanceof UnsupportedOperationException) {
+                        message += "\n" + Exceptions.INCOMPATIBLE_VERSION_HINT;
+                    }
+                    return message;
+                }
+            }));
         }
     }
 }

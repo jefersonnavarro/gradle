@@ -15,8 +15,6 @@
  */
 package org.gradle.launcher.daemon.protocol;
 
-import java.io.Serializable;
-
 /**
  * The supertype of all objects sent from the daemon server back to the client.
  * <p>
@@ -27,7 +25,7 @@ import java.io.Serializable;
  *
  * <p>The result is the last message sent from the daemon back to the daemon client.
  */
-abstract public class Result<T> implements Serializable {
+public abstract class Result<T> extends Message {
 
     private final T value;
 
@@ -38,9 +36,9 @@ abstract public class Result<T> implements Serializable {
     public T getValue() {
         return value;
     }
-    
+
     @Override
     public String toString() {
-        return String.format("DaemonCommandResult[type=%s, value=%s]", getClass().getSimpleName(), getValue());
+        return getClass().getSimpleName() + "[value=" + getValue() + "]";
     }
 }

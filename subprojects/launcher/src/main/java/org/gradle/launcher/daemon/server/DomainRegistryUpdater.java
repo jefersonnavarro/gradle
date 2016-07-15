@@ -19,10 +19,14 @@ package org.gradle.launcher.daemon.server;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
 import org.gradle.internal.concurrent.Stoppable;
+import org.gradle.internal.remote.Address;
 import org.gradle.launcher.daemon.context.DaemonContext;
 import org.gradle.launcher.daemon.logging.DaemonMessages;
+import org.gradle.launcher.daemon.registry.DaemonInfo;
 import org.gradle.launcher.daemon.registry.DaemonRegistry;
-import org.gradle.messaging.remote.Address;
+import org.gradle.launcher.daemon.registry.DaemonStopEvent;
+
+import java.util.Date;
 
 class DomainRegistryUpdater implements Stoppable {
 
@@ -30,17 +34,17 @@ class DomainRegistryUpdater implements Stoppable {
 
     private final DaemonRegistry daemonRegistry;
     private final DaemonContext daemonContext;
-    private final String password;
+    private final byte[] token;
     private Address connectorAddress;
 
-    public DomainRegistryUpdater(DaemonRegistry daemonRegistry, DaemonContext daemonContext, String password) {
+    public DomainRegistryUpdater(DaemonRegistry daemonRegistry, DaemonContext daemonContext, byte[] token) {
         this.daemonRegistry = daemonRegistry;
         this.daemonContext = daemonContext;
-        this.password = password;
+        this.token = token;
     }
 
     public void onStartActivity() {
-        LOGGER.info("Marking the daemon as busy, address: " + connectorAddress);
+        LOGGER.info("Marking the daemon as busy, address: {}", connectorAddress);
         try {
             daemonRegistry.markBusy(connectorAddress);
         } catch (DaemonRegistry.EmptyRegistryException e) {
@@ -49,7 +53,7 @@ class DomainRegistryUpdater implements Stoppable {
     }
 
     public void onCompleteActivity() {
-        LOGGER.info("Marking the daemon as idle, address: " + connectorAddress);
+        LOGGER.info("Marking the daemon as idle, address: {}", connectorAddress);
         try {
             daemonRegistry.markIdle(connectorAddress);
         } catch (DaemonRegistry.EmptyRegistryException e) {
@@ -58,14 +62,20 @@ class DomainRegistryUpdater implements Stoppable {
     }
 
     public void onStart(Address connectorAddress) {
-        LOGGER.info(DaemonMessages.ADVERTISING_DAEMON + connectorAddress);
+        LOGGER.info("{}{}", DaemonMessages.ADVERTISING_DAEMON, connectorAddress);
         LOGGER.debug("Advertised daemon context: {}", daemonContext);
         this.connectorAddress = connectorAddress;
-        daemonRegistry.store(connectorAddress, daemonContext, password, false);
+        daemonRegistry.store(new DaemonInfo(connectorAddress, daemonContext, token, false));
+    }
+
+    public void onExpire(String reason) {
+        LOGGER.debug("Storing daemon stop event: {}", reason);
+        final Date timestamp = new Date(System.currentTimeMillis());
+        daemonRegistry.storeStopEvent(new DaemonStopEvent(timestamp, reason));
     }
 
     public void stop() {
-        LOGGER.debug("Removing our presence to clients, eg. removing this address from the registry: " + connectorAddress);
+        LOGGER.debug("Removing our presence to clients, eg. removing this address from the registry: {}", connectorAddress);
         try {
             daemonRegistry.remove(connectorAddress);
         } catch (DaemonRegistry.EmptyRegistryException e) {

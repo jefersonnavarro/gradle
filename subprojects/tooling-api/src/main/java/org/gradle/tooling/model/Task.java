@@ -15,6 +15,7 @@
  */
 package org.gradle.tooling.model;
 
+import org.gradle.api.Incubating;
 import org.gradle.api.Nullable;
 
 /**
@@ -51,13 +52,12 @@ public interface Task extends Launchable {
     String getDescription();
 
     /**
-     * Returns the element which this task belongs to.
+     * Returns the group a task belongs to.
      *
-     * @deprecated Do not use this method. It is assumed that the caller already has a reference to owning project.
-     * @return The element which this task belongs to.
-     * @throws org.gradle.tooling.model.UnsupportedMethodException From 1.12 for implementations that do not also implement {@link org.gradle.tooling.model.GradleTask}.
-     * @since 1.0-milestone-3
+     * @return the group a task belongs to.
+     * @since 2.5
      */
-    @Deprecated
-    Element getProject();
+    @Incubating
+    @Nullable
+    String getGroup();
 }

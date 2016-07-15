@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2016 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,268 +16,91 @@
 
 package org.gradle.language.base.plugins
 
-import org.gradle.api.Action
-import org.gradle.api.NamedDomainObjectFactory
-import org.gradle.api.Task
-import org.gradle.api.file.FileCollection
-import org.gradle.api.file.SourceDirectorySet
-import org.gradle.api.internal.file.FileResolver
-import org.gradle.api.tasks.TaskDependency
-import org.gradle.language.base.FunctionalSourceSet
-import org.gradle.language.base.LanguageSourceSet
-import org.gradle.language.base.internal.SourceTransformTaskConfig
-import org.gradle.language.base.internal.registry.LanguageRegistration
-import org.gradle.language.base.internal.registry.LanguageTransform
-import org.gradle.model.internal.core.ModelPath
-import org.gradle.platform.base.BinarySpec
-import org.gradle.platform.base.TransformationFileType
-import org.gradle.platform.base.component.BaseComponentSpec
-import org.gradle.platform.base.internal.ComponentSpecInternal
-import org.gradle.util.TestUtil
-import org.gradle.util.WrapUtil
-import spock.lang.Specification
+import org.gradle.platform.base.*
+import org.gradle.platform.base.plugins.BinaryBasePlugin
+import org.gradle.platform.base.plugins.ComponentBasePlugin
 
-class ComponentModelBasePluginTest extends Specification {
-    def project = TestUtil.createRootProject()
-
-    def "adds componentSpecs extension"() {
+class ComponentModelBasePluginTest extends PlatformBaseSpecification {
+    def "applies language and binary base plugins"() {
         when:
-        project.pluginManager.apply(ComponentModelBasePlugin)
-        then:
-        project.componentSpecs != null
-    }
-
-    def "adds componentSpecs model"() {
-        when:
-        project.pluginManager.apply(ComponentModelBasePlugin)
-        then:
-        project.modelRegistry.get(ModelPath.path("components")) != null
-    }
-
-    def "registers language sourceset factory and created default source set for component"() {
-        setup:
-
-        def componentSpecInternal = Mock(ComponentSpecInternal)
-        _ * componentSpecInternal.name >> "testComponent"
-        _ * componentSpecInternal.inputTypes >> [TestTransformFile.class]
-
-        def componentFunctionalSourceSet = Mock(FunctionalSourceSet)
-        _ * componentFunctionalSourceSet.name >> "testComponentSources"
-        _ * componentSpecInternal.sources >> componentFunctionalSourceSet
-        _ * componentSpecInternal.source >> WrapUtil.toDomainObjectSet(LanguageSourceSet)
-
-        when:
-        project.pluginManager.apply(ComponentModelBasePlugin)
-        project.model {
-            languages {
-                add(new TestLanguageRegistration())
-            }
-            languageTransforms {
-                add(new TestLanguageRegistration())
-            }
+        dsl {
+            apply plugin: ComponentModelBasePlugin
         }
-        project.componentSpecs.add(componentSpecInternal)
-        project.realizeTasksAndValidateModel()
 
         then:
-        1 * componentFunctionalSourceSet.registerFactory(TestSourceSet, _ as NamedDomainObjectFactory)
-        1 * componentFunctionalSourceSet.maybeCreate("test", TestSourceSet)
-        1 * componentFunctionalSourceSet.getName() >> "testFunctionalSourceSet"
-        0 * componentFunctionalSourceSet._
+        project.pluginManager.pluginContainer.size() == 5
+        project.pluginManager.pluginContainer.findPlugin(ComponentBasePlugin) != null
+        project.pluginManager.pluginContainer.findPlugin(BinaryBasePlugin) != null
+        project.pluginManager.pluginContainer.findPlugin(LanguageBasePlugin) != null
+        project.pluginManager.pluginContainer.findPlugin(LifecycleBasePlugin) != null
     }
 
-    public static class TestLanguageRegistration implements LanguageRegistration, LanguageTransform {
-        @Override
-        String getName() {
-            return "test"
-        }
-
-        @Override
-        Class getSourceSetType() {
-            return TestSourceSet.class
-        }
-
-        @Override
-        Map<String, Class<?>> getBinaryTools() {
-            return null
-        }
-
-        @Override
-        Class<? extends TransformationFileType> getOutputType() {
-            return TestTransformFile.class
-        }
-
-        @Override
-        SourceTransformTaskConfig getTransformTask() {
-            return null
-        }
-
-        @Override
-        boolean applyToBinary(BinarySpec binary) {
-            return false
-        }
-
-        @Override
-        public NamedDomainObjectFactory getSourceSetFactory(String parentName) {
-            return new NamedDomainObjectFactory() {
-                @Override
-                Object create(String name) {
-                    new TestSourceImplementation(name, parentName, fileResolver)
+    def "registers base types"() {
+        when:
+        dsl {
+            apply plugin: ComponentModelBasePlugin
+            model {
+                baseComponent(type) {
                 }
             }
         }
+
+        then:
+        type.isInstance(realize("baseComponent"))
+
+        where:
+        type                 | _
+        GeneralComponentSpec | _
+        ApplicationSpec      | _
+        LibrarySpec          | _
     }
 
-    public static class TestSourceImplementation implements TestSourceSet {
-        String name
-
-        public TestSourceImplementation(String name, String parent, FileResolver fileResolver) {
-            this.name = name;
+    def "links the binaries of each component in 'components' container into the 'binaries' container"() {
+        when:
+        dsl {
+            apply plugin: ComponentModelBasePlugin
+            model {
+                components {
+                    comp1(GeneralComponentSpec) {
+                        binaries {
+                            bin1(BinarySpec)
+                            bin2(BinarySpec)
+                        }
+                    }
+                    comp2(ComponentSpec)
+                }
+            }
         }
 
-        @Override
-        String getName() {
-            return name;
-        }
-
-        FileCollection getCompileClasspath() {
-            return null
-        }
-
-        void setCompileClasspath(FileCollection classpath) {
-
-        }
-
-        FileCollection getRuntimeClasspath() {
-            return null
-        }
-
-        void setRuntimeClasspath(FileCollection classpath) {
-
-        }
-
-        def getOutput() {
-            return null
-        }
-
-        TestSourceSet compiledBy(Object... taskPaths) {
-            return null
-        }
-
-        SourceDirectorySet getResources() {
-            return null
-        }
-
-        TestSourceSet resources(Closure configureClosure) {
-            return null
-        }
-
-        SourceDirectorySet getJava() {
-            return null
-        }
-
-        TestSourceSet java(Closure configureClosure) {
-            return null
-        }
-
-        SourceDirectorySet getAllJava() {
-            return null
-        }
-
-        SourceDirectorySet getAllSource() {
-            return null
-        }
-
-        String getClassesTaskName() {
-            return null
-        }
-
-        String getProcessResourcesTaskName() {
-            return null
-        }
-
-        String getCompileJavaTaskName() {
-            return null
-        }
-
-        String getCompileTaskName(String language) {
-            return null
-        }
-
-        String getJarTaskName() {
-            return null
-        }
-
-        String getTaskName(String verb, String target) {
-            return null
-        }
-
-        String getCompileConfigurationName() {
-            return null
-        }
-
-        String getRuntimeConfigurationName() {
-            return null
-        }
-
-        String getDisplayName() {
-            return null
-        }
-
-        SourceDirectorySet getSource() {
-            return null
-        }
-
-        @Override
-        void source(Action<? super SourceDirectorySet> config) {
-
-        }
-
-        @Override
-        void generatedBy(Task generatorTask) {
-
-        }
-
-        @Override
-        Task getBuildTask() {
-            return null
-        }
-
-        @Override
-        void setBuildTask(Task lifecycleTask) {
-
-        }
-
-        @Override
-        void builtBy(Object... tasks) {
-
-        }
-
-        @Override
-        boolean hasBuildDependencies() {
-            return false
-        }
-
-        @Override
-        TaskDependency getBuildDependencies() {
-            return null
-        }
+        then:
+        def binaries = realizeBinaries()
+        def components = realizeComponents()
+        binaries.size() == 2
+        binaries.comp1Bin1 == components.comp1.binaries.bin1
+        binaries.comp1Bin2 == components.comp1.binaries.bin2
     }
 
-    public static class TestTransformFile implements TransformationFileType {
-
-    }
-
-    public static interface TestSourceSet extends LanguageSourceSet {
-    }
-
-    public static class TestComponentSpecInternal extends BaseComponentSpec implements ComponentSpecInternal {
-        @Override
-        Set<Class<? extends TransformationFileType>> getInputTypes() {
-            return new HashSet<Class<? extends TransformationFileType>>(0)
+    def "links the tasks of each component in 'components' container into the 'tasks' container"() {
+        when:
+        dsl {
+            apply plugin: ComponentModelBasePlugin
+            model {
+                components {
+                    comp1(GeneralComponentSpec) {
+                        binaries {
+                            bin1(BinarySpec)
+                            bin2(BinarySpec)
+                        }
+                    }
+                    comp2(ComponentSpec)
+                }
+            }
         }
-    }
 
-    public static class TestComponentSpec extends BaseComponentSpec {
+        then:
+        def tasks = realizeTasks()
+        def components = realizeComponents()
+        tasks.comp1Bin1 == components.comp1.binaries.bin1.tasks.build
+        tasks.comp1Bin2 == components.comp1.binaries.bin2.tasks.build
     }
 }

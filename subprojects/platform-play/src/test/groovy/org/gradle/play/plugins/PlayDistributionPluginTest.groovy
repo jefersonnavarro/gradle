@@ -15,7 +15,6 @@
  */
 
 package org.gradle.play.plugins
-
 import org.gradle.api.Action
 import org.gradle.api.DomainObjectSet
 import org.gradle.api.NamedDomainObjectSet
@@ -26,20 +25,25 @@ import org.gradle.api.artifacts.dsl.DependencyHandler
 import org.gradle.api.file.CopySpec
 import org.gradle.api.file.FileCollection
 import org.gradle.api.file.FileTree
+import org.gradle.api.internal.file.FileOperations
 import org.gradle.api.internal.file.copy.CopySpecInternal
 import org.gradle.api.internal.file.copy.DestinationRootCopySpec
 import org.gradle.api.java.archives.Manifest
-import org.gradle.api.tasks.Copy
+import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.application.CreateStartScripts
+import org.gradle.api.tasks.bundling.Tar
 import org.gradle.api.tasks.bundling.Zip
+import org.gradle.internal.reflect.Instantiator
+import org.gradle.internal.service.ServiceRegistry
 import org.gradle.jvm.tasks.Jar
-import org.gradle.model.collection.CollectionBuilder
-import org.gradle.platform.base.BinaryContainer
+import org.gradle.model.ModelMap
 import org.gradle.platform.base.BinaryTasksCollection
 import org.gradle.play.PlayApplicationBinarySpec
 import org.gradle.play.distribution.PlayDistribution
 import org.gradle.play.distribution.PlayDistributionContainer
 import org.gradle.play.internal.PlayApplicationBinarySpecInternal
+import org.gradle.play.internal.distribution.DefaultPlayDistribution
+import org.gradle.util.WrapUtil
 import spock.lang.Specification
 
 class PlayDistributionPluginTest extends Specification {
@@ -48,14 +52,24 @@ class PlayDistributionPluginTest extends Specification {
     def "adds default distribution for each binary" () {
         DomainObjectSet jarTasks1 = Stub(DomainObjectSet)
         DomainObjectSet jarTasks2 = Stub(DomainObjectSet)
-        PlayApplicationBinarySpecInternal bin1 = binary("bin1", jarTasks1)
-        PlayApplicationBinarySpecInternal bin2 = binary("bin2", jarTasks2)
-        BinaryContainer binaryContainer = binaryContainer([ bin1, bin2 ])
+        PlayApplicationBinarySpec bin1 = binary("bin1", jarTasks1)
+        PlayApplicationBinarySpec bin2 = binary("bin2", jarTasks2)
+        ModelMap<PlayApplicationBinarySpec> binaryContainer = binaryContainer([ bin1, bin2 ])
 
         def distributions = [ bin1: distribution(bin1), bin2: distribution(bin2) ]
         PlayDistributionContainer distributionContainer = Mock(PlayDistributionContainer) {
             findByName(_) >> { String name ->
                 return distributions[name]
+            }
+        }
+        ServiceRegistry serviceRegistry = Mock(ServiceRegistry) {
+            get(Instantiator.class) >> Mock(Instantiator) {
+                newInstance(DefaultPlayDistribution.class, _, _, _) >> { Class c, otherArgs ->
+                    return distributions[otherArgs[0]]
+                }
+            }
+            get(FileOperations.class) >> Mock(FileOperations) {
+                copySpec(_) >> Stub(CopySpec)
             }
         }
         ConfigurationContainer configurationContainer = Stub(ConfigurationContainer) {
@@ -64,23 +78,23 @@ class PlayDistributionPluginTest extends Specification {
         }
         PlayPluginConfigurations configurations = new PlayPluginConfigurations(configurationContainer, Stub(DependencyHandler))
 
-
         when:
-        plugin.createDistributions(distributionContainer, binaryContainer, configurations)
+        plugin.createDistributions(distributionContainer, binaryContainer, configurations, serviceRegistry)
 
         then:
-        1 * distributionContainer.create("bin1") >> distributions["bin1"]
-        1 * distributionContainer.create("bin2") >> distributions["bin2"]
+        1 * distributionContainer.add(distributions["bin1"])
+        1 * distributionContainer.add(distributions["bin2"])
     }
 
     def "adds scripts and distribution jar tasks for binary" () {
+        def distributions = Mock(PlayDistributionContainer)
         File buildDir = new File("")
         DomainObjectSet jarTasks = Stub(DomainObjectSet)
-        PlayApplicationBinarySpecInternal binary = binary("playBinary", jarTasks)
+        PlayApplicationBinarySpec binary = binary("playBinary", jarTasks)
         binary.getJarFile() >> Stub(File) {
             getName() >> "playBinary.zip"
         }
-        CollectionBuilder tasks = Mock(CollectionBuilder) {
+        ModelMap tasks = Mock(ModelMap) {
             get("createPlayBinaryStartScripts") >> Stub(CreateStartScripts)
             get("createPlayBinaryDistributionJar") >> Stub(Jar)
         }
@@ -107,7 +121,6 @@ class PlayDistributionPluginTest extends Specification {
                 }
             }
         }
-        PlayDistributionContainer distributions = distributions([distribution])
         ConfigurationContainer configurationContainer = Stub(ConfigurationContainer) {
             create(_) >> Stub(Configuration)
             maybeCreate(_) >> Stub(Configuration)
@@ -118,6 +131,7 @@ class PlayDistributionPluginTest extends Specification {
         plugin.createDistributionContentTasks(tasks, buildDir, distributions, configurations)
 
         then:
+        1 * distributions.withType(PlayDistribution) >> WrapUtil.toNamedDomainObjectSet(PlayDistribution, distribution)
         1 * tasks.create("createPlayBinaryStartScripts", CreateStartScripts, _) >> { String name, Class type, Action action ->
             action.execute(Mock(CreateStartScripts) {
                 1 * setDescription(_)
@@ -148,33 +162,40 @@ class PlayDistributionPluginTest extends Specification {
     def "adds dist and stage tasks for binary" () {
         File buildDir = new File("")
         DomainObjectSet jarTasks = Stub(DomainObjectSet)
-        PlayApplicationBinarySpecInternal binary = binary("playBinary", jarTasks)
-        CollectionBuilder tasks = Mock(CollectionBuilder) {
-            get("stagePlayBinaryDist") >> Stub(Copy)
+        PlayApplicationBinarySpec binary = binary("playBinary", jarTasks)
+        ModelMap tasks = Mock(ModelMap) {
+            get("stagePlayBinaryDist") >> Stub(Sync)
         }
         PlayDistribution distribution = Mock(PlayDistribution) {
             getName() >> "playBinary"
             getContents() >> Mock(CopySpecInternal)
         }
-        PlayDistributionContainer distributions = distributions([ distribution ])
+        def distributions = Mock(PlayDistributionContainer)
 
         when:
         plugin.createDistributionZipTasks(tasks, buildDir, distributions)
 
         then:
-        1 * tasks.create("createPlayBinaryDist", Zip, _) >> { String name, Class type, Action action ->
+        1 * distributions.withType(PlayDistribution) >> WrapUtil.toNamedDomainObjectSet(PlayDistribution, distribution)
+        1 * tasks.create("createPlayBinaryZipDist", Zip, _) >> { String name, Class type, Action action ->
             action.execute(Mock(Zip) {
                 1 * setDescription(_)
-                1 * setGroup(_)
                 1 * setDestinationDir(_)
-                1 * setArchiveName("playBinary.zip")
-                1 * from(_ as Copy)
+                1 * setBaseName("playBinary")
+                1 * from(_ as Sync)
             })
         }
-        1 * tasks.create("stagePlayBinaryDist", Copy, _) >> { String name, Class type, Action action ->
-            action.execute(Mock(Copy) {
+        1 * tasks.create("createPlayBinaryTarDist", Tar, _) >> { String name, Class type, Action action ->
+            action.execute(Mock(Tar) {
                 1 * setDescription(_)
-                1 * setGroup(_)
+                1 * setDestinationDir(_)
+                1 * setBaseName("playBinary")
+                1 * from(_ as Sync)
+            })
+        }
+        1 * tasks.create("stagePlayBinaryDist", Sync, _) >> { String name, Class type, Action action ->
+            action.execute(Mock(Sync) {
+                1 * setDescription(_)
                 1 * setDestinationDir(_)
                 1 * getRootSpec() >> Mock(DestinationRootCopySpec) {
                     1 * addChild() >> Mock(CopySpecInternal) {
@@ -187,10 +208,8 @@ class PlayDistributionPluginTest extends Specification {
     }
 
     def binaryContainer(List binaries) {
-        return Stub(BinaryContainer) {
-            withType(PlayApplicationBinarySpecInternal.class) >> Stub(NamedDomainObjectSet) {
-                iterator() >> binaries.iterator()
-            }
+        return Stub(ModelMap) {
+            iterator() >> binaries.iterator()
         }
     }
 
@@ -209,6 +228,7 @@ class PlayDistributionPluginTest extends Specification {
                 withType(Jar.class) >> jarTasks
             }
             getName() >> name
+            getProjectScopedName() >> name
         }
     }
 

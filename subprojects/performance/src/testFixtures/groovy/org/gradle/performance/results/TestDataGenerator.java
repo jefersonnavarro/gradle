@@ -19,7 +19,6 @@ package org.gradle.performance.results;
 import com.google.common.collect.Lists;
 import org.gradle.api.Transformer;
 import org.gradle.performance.fixture.MeasuredOperationList;
-import org.gradle.performance.fixture.PerformanceResults;
 import org.gradle.reporting.ReportRenderer;
 
 import java.io.IOException;
@@ -28,27 +27,27 @@ import java.io.Writer;
 import java.util.Date;
 import java.util.List;
 
-public class TestDataGenerator extends ReportRenderer<TestExecutionHistory, Writer> {
+public class TestDataGenerator extends ReportRenderer<PerformanceTestHistory, Writer> {
     protected final FormatSupport format = new FormatSupport();
 
     @Override
-    public void render(TestExecutionHistory testHistory, Writer output) throws IOException {
+    public void render(PerformanceTestHistory testHistory, Writer output) throws IOException {
         PrintWriter out = new PrintWriter(output);
-        List<PerformanceResults> sortedResults = Lists.reverse(testHistory.getPerformanceResults());
+        List<? extends PerformanceTestExecution> sortedResults = Lists.reverse(testHistory.getExecutions());
         out.println("{");
         out.println("\"labels\": [");
         for (int i = 0; i < sortedResults.size(); i++) {
-            PerformanceResults results = sortedResults.get(i);
+            PerformanceTestExecution results = sortedResults.get(i);
             if (i > 0) {
                 out.print(", ");
             }
             out.print("\"" + format.date(new Date(results.getTestTime())) + "\"");
         }
         out.println("],");
-        out.print("\"executionTime\":");
+        out.print("\"totalTime\":");
         render(testHistory, new Transformer<String, MeasuredOperationList>() {
             public String transform(MeasuredOperationList original) {
-                return format.seconds(original.getExecutionTime().getAverage());
+                return format.seconds(original.getTotalTime().getAverage());
             }
         }, out);
         out.println(",");
@@ -62,10 +61,10 @@ public class TestDataGenerator extends ReportRenderer<TestExecutionHistory, Writ
         out.flush();
     }
 
-    void render(TestExecutionHistory testHistory, Transformer<String, MeasuredOperationList> valueRenderer, PrintWriter out) {
-        List<PerformanceResults> sortedResults = Lists.reverse(testHistory.getPerformanceResults());
+    void render(PerformanceTestHistory testHistory, Transformer<String, MeasuredOperationList> valueRenderer, PrintWriter out) {
+        List<? extends PerformanceTestExecution> sortedResults = Lists.reverse(testHistory.getExecutions());
         out.println("  [");
-        List<String> labels = testHistory.getOperationLabels();
+        List<String> labels = testHistory.getScenarioLabels();
         for (int i = 0; i < labels.size(); i++) {
             if (i > 0) {
                 out.println(",");
@@ -75,8 +74,8 @@ public class TestDataGenerator extends ReportRenderer<TestExecutionHistory, Writ
             out.print("\"data\": [");
             boolean empty = true;
             for (int j = 0; j < sortedResults.size(); j++) {
-                PerformanceResults results = sortedResults.get(j);
-                MeasuredOperationList measuredOperations = results.getExecutionOperations().get(i);
+                PerformanceTestExecution results = sortedResults.get(j);
+                MeasuredOperationList measuredOperations = results.getScenarios().get(i);
                 if (!measuredOperations.isEmpty()) {
                     if (!empty) {
                         out.print(", ");

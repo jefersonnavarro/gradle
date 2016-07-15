@@ -18,7 +18,9 @@
 
 package org.gradle.buildinit.plugins.internal.maven
 
-import org.gradle.mvn3.org.apache.maven.project.MavenProject
+import org.apache.maven.project.MavenProject
+import org.gradle.api.logging.Logger
+import org.gradle.api.logging.Logging
 import org.gradle.util.GFileUtils
 
 /**
@@ -34,16 +36,16 @@ class Maven2Gradle {
     def workingDir
     def effectivePom
 
+    Logger logger = Logging.getLogger(getClass())
     private Set<MavenProject> mavenProjects
 
-    Maven2Gradle(Set<MavenProject> mavenProjects) {
+    Maven2Gradle(Set<MavenProject> mavenProjects, File workingDir) {
         assert !mavenProjects.empty: "No Maven projects provided."
         this.mavenProjects = mavenProjects
+        this.workingDir = workingDir.canonicalFile;
     }
 
     def convert() {
-        workingDir = new File('.').canonicalFile
-
         //For now we're building the effective POM XML from the model
         //and then we parse the XML using slurper.
         //This way we don't have to rewrite the Maven2Gradle just yet.
@@ -86,6 +88,7 @@ subprojects {
                 boolean warPack = module.packaging.text().equals("war")
                 def hasDependencies = !(moduleDependencies == null || moduleDependencies.length() == 0)
                 File submoduleBuildFile = new File(projectDir(module), 'build.gradle')
+
                 def group = ''
                 if (module.groupId != allProjects[0].groupId) {
                     group = "group = '${module.groupId}'"
@@ -115,12 +118,14 @@ subprojects {
                 moduleBuild += testNg(moduleDependencies)
 
                 if (submoduleBuildFile.exists()) {
-                    submoduleBuildFile.renameTo(new File("build.gradle.bak"))
+                    submoduleBuildFile.renameTo(new File(projectDir(module), "build.gradle.bak"))
                 }
                 def packageTests = packageTests(module);
                 if (packageTests) {
                     moduleBuild += packageTests;
                 }
+
+                logger.debug("writing build.gradle file at ${submoduleBuildFile.absolutePath}");
                 submoduleBuildFile.text = moduleBuild
             }
             //TODO deployment
@@ -156,10 +161,11 @@ ${globalExclusions(this.effectivePom)}
             }
             generateSettings(workingDir.getName(), this.effectivePom.artifactId, null);
         }
-        def buildFile = new File("build.gradle")
+        def buildFile = new File(workingDir, "build.gradle")
         if (buildFile.exists()) {
-            buildFile.renameTo(new File("build.gradle.bak"))
+            buildFile.renameTo(new File(workingDir, "build.gradle.bak"))
         }
+        logger.debug("writing build.gradle file at ${buildFile.absolutePath}");
         buildFile.text = build
     }
 
@@ -455,9 +461,9 @@ artifacts.archives packageTests
                 }
             }
         }
-        File settingsFile = new File("settings.gradle")
+        File settingsFile = new File(workingDir, "settings.gradle")
         if (settingsFile.exists()) {
-            settingsFile.renameTo(new File("settings.gradle.bak"))
+            settingsFile.renameTo(new File(workingDir, "settings.gradle.bak"))
         }
         StringBuffer settingsText = new StringBuffer(projectName)
         if (moduleNames.size() > 0) {

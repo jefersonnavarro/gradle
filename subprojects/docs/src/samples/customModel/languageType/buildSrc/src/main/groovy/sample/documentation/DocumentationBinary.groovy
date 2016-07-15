@@ -16,9 +16,13 @@
 
 package sample.documentation
 
+import org.gradle.model.Managed
 import org.gradle.platform.base.BinarySpec
 
+// START SNIPPET binary-declaration
+@Managed
 interface DocumentationBinary extends BinarySpec {
-    void add(String name, Object contentProvider)
-    Map<String, Object> content;
+    File getOutputDir()
+    void setOutputDir(File outputDir)
 }
+// END SNIPPET binary-declaration

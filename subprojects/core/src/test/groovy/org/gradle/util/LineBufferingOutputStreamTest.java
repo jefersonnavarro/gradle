@@ -16,6 +16,7 @@
 package org.gradle.util;
 
 import org.gradle.internal.SystemProperties;
+import org.gradle.internal.io.LineBufferingOutputStream;
 import org.gradle.internal.io.TextStream;
 import org.jmock.Expectations;
 import org.jmock.integration.junit4.JMock;
@@ -35,7 +36,7 @@ public class LineBufferingOutputStreamTest {
 
     @Before
     public void setUp() {
-        eol = SystemProperties.getLineSeparator();
+        eol = SystemProperties.getInstance().getLineSeparator();
     }
 
     @After

@@ -16,115 +16,147 @@
 
 package org.gradle.play.plugins;
 
-import org.gradle.api.Action;
-import org.gradle.api.Incubating;
-import org.gradle.api.Task;
+import org.gradle.api.*;
+import org.gradle.api.internal.file.SourceDirectorySetFactory;
 import org.gradle.internal.service.ServiceRegistry;
-import org.gradle.language.base.internal.LanguageSourceSetInternal;
+import org.gradle.language.base.LanguageSourceSet;
+import org.gradle.language.base.internal.SourceTransformTaskConfig;
+import org.gradle.language.base.internal.registry.LanguageTransform;
+import org.gradle.language.base.internal.registry.LanguageTransformContainer;
+import org.gradle.language.base.plugins.ComponentModelBasePlugin;
 import org.gradle.language.coffeescript.CoffeeScriptSourceSet;
-import org.gradle.language.coffeescript.internal.DefaultCoffeeScriptSourceSet;
-import org.gradle.model.Mutate;
-import org.gradle.model.Path;
-import org.gradle.model.RuleSource;
-import org.gradle.model.collection.CollectionBuilder;
-import org.gradle.platform.base.BinaryTasks;
-import org.gradle.platform.base.LanguageType;
-import org.gradle.platform.base.LanguageTypeBuilder;
-import org.gradle.platform.base.internal.ComponentSpecInternal;
-import org.gradle.play.PlayApplicationBinarySpec;
+import org.gradle.language.javascript.JavaScriptSourceSet;
+import org.gradle.model.*;
+import org.gradle.platform.base.BinarySpec;
+import org.gradle.platform.base.ComponentType;
+import org.gradle.platform.base.TypeBuilder;
 import org.gradle.play.PlayApplicationSpec;
+import org.gradle.play.internal.JavaScriptSourceCode;
 import org.gradle.play.internal.PlayApplicationBinarySpecInternal;
-import org.gradle.play.tasks.JavaScriptMinify;
 import org.gradle.play.tasks.PlayCoffeeScriptCompile;
 
 import java.io.File;
-
-import static org.apache.commons.lang.StringUtils.capitalize;
+import java.util.Collections;
+import java.util.Map;
 
 /**
- * Plugin for adding coffeescript compilation to a Play application.  Applies the {@link org.gradle.play.plugins.PlayJavaScriptPlugin} and adds
- * a {@link org.gradle.language.coffeescript.CoffeeScriptSourceSet}.
+ * Plugin for adding coffeescript compilation to a Play application.  Adds support for
+ * defining {@link org.gradle.language.coffeescript.CoffeeScriptSourceSet} source sets.  A
+ * "coffeeScript" source set is created by default.
  */
 @SuppressWarnings("UnusedDeclaration")
 @Incubating
-public class PlayCoffeeScriptPlugin extends RuleSource {
+public class PlayCoffeeScriptPlugin implements Plugin<Project> {
     private static final String DEFAULT_COFFEESCRIPT_VERSION = "1.8.0";
     private static final String DEFAULT_RHINO_VERSION = "1.7R4";
 
     static String getDefaultCoffeeScriptDependencyNotation() {
-        return String.format("org.coffeescript:coffee-script-js:%s@js", DEFAULT_COFFEESCRIPT_VERSION);
+        return "org.coffeescript:coffee-script-js:" + DEFAULT_COFFEESCRIPT_VERSION + "@js";
     }
 
     static String getDefaultRhinoDependencyNotation() {
-        return String.format("org.mozilla:rhino:%s", DEFAULT_RHINO_VERSION);
+        return "org.mozilla:rhino:" + DEFAULT_RHINO_VERSION;
     }
 
-    @LanguageType
-    void registerCoffeeScript(LanguageTypeBuilder<CoffeeScriptSourceSet> builder) {
-        builder.setLanguageName("coffeeScript");
-        builder.defaultImplementation(DefaultCoffeeScriptSourceSet.class);
+    @Override
+    public void apply(Project target) {
+        target.getPluginManager().apply(ComponentModelBasePlugin.class);
     }
 
-    @Mutate
-    void createCoffeeScriptSourceSets(CollectionBuilder<PlayApplicationSpec> components) {
-        components.beforeEach(new Action<PlayApplicationSpec>() {
-            @Override
-            public void execute(PlayApplicationSpec playComponent) {
-                // TODO - should have some way to lookup using internal type
-                CoffeeScriptSourceSet coffeeScriptSourceSet = ((ComponentSpecInternal) playComponent).getSources().create("coffeeScriptAssets", CoffeeScriptSourceSet.class);
-                coffeeScriptSourceSet.getSource().srcDir("app/assets");
-                coffeeScriptSourceSet.getSource().include("**/*.coffee");
-            }
-        });
-    }
+    static class Rules extends RuleSource {
+        @ComponentType
+        void registerCoffeeScript(TypeBuilder<CoffeeScriptSourceSet> builder) {
+        }
 
-    @BinaryTasks
-    void createCoffeeScriptTasks(CollectionBuilder<Task> tasks, final PlayApplicationBinarySpecInternal binary, final ServiceRegistry serviceRegistry, @Path("buildDir") final File buildDir) {
-        for (final CoffeeScriptSourceSet coffeeScriptSourceSet : binary.getSource().withType(CoffeeScriptSourceSet.class)) {
-            if (((LanguageSourceSetInternal) coffeeScriptSourceSet).getMayHaveSources()) {
-                String compileTaskName = createCoffeeScriptCompile(tasks, binary, buildDir, coffeeScriptSourceSet);
-                createJavaScriptCompile(tasks, binary, buildDir, coffeeScriptSourceSet, compileTaskName);
-            }
+        @Finalize
+        void createCoffeeScriptSourceSets(@Each PlayApplicationSpec playComponent) {
+            playComponent.getSources().create("coffeeScript", CoffeeScriptSourceSet.class, new Action<CoffeeScriptSourceSet>() {
+                @Override
+                public void execute(CoffeeScriptSourceSet coffeeScriptSourceSet) {
+                    coffeeScriptSourceSet.getSource().srcDir("app/assets");
+                    coffeeScriptSourceSet.getSource().include("**/*.coffee");
+                }
+            });
+        }
+
+        @Mutate
+        void createGeneratedJavaScriptSourceSets(@Path("binaries") ModelMap<PlayApplicationBinarySpecInternal> binaries, final SourceDirectorySetFactory sourceDirectorySetFactory) {
+            binaries.all(new Action<PlayApplicationBinarySpecInternal>() {
+                @Override
+                public void execute(PlayApplicationBinarySpecInternal playApplicationBinarySpec) {
+                    for (CoffeeScriptSourceSet coffeeScriptSourceSet : playApplicationBinarySpec.getInputs().withType(CoffeeScriptSourceSet.class)) {
+                        playApplicationBinarySpec.addGeneratedJavaScript(coffeeScriptSourceSet, sourceDirectorySetFactory);
+                    }
+                }
+            });
+        }
+
+        @Defaults
+        void configureCoffeeScriptCompileDefaults(@Each PlayCoffeeScriptCompile coffeeScriptCompile) {
+            coffeeScriptCompile.setRhinoClasspathNotation(getDefaultRhinoDependencyNotation());
+            coffeeScriptCompile.setCoffeeScriptJsNotation(getDefaultCoffeeScriptDependencyNotation());
+        }
+
+        @Mutate
+        void registerLanguageTransform(LanguageTransformContainer languages) {
+            languages.add(new CoffeeScript());
         }
     }
 
-    private String createCoffeeScriptCompile(CollectionBuilder<Task> tasks, final PlayApplicationBinarySpecInternal binary, final File buildDir,
-                                             final CoffeeScriptSourceSet coffeeScriptSourceSet) {
-        final String compileTaskName = "compile" + capitalize(binary.getName()) + capitalize(coffeeScriptSourceSet.getName());
-        tasks.create(compileTaskName, PlayCoffeeScriptCompile.class, new Action<PlayCoffeeScriptCompile>() {
-            @Override
-            public void execute(PlayCoffeeScriptCompile coffeeScriptCompile) {
-                coffeeScriptCompile.setDestinationDir(outputDirectory(buildDir, binary, compileTaskName));
-                coffeeScriptCompile.setSource(coffeeScriptSourceSet.getSource());
-                // TODO:DAZ This is a workaround for ordering issues in setting coffeeScriptJs (need something like convention mapping)
-                if (!coffeeScriptCompile.hasCustomCoffeeScriptJs()) {
-                    coffeeScriptCompile.setCoffeeScriptJsNotation(getDefaultCoffeeScriptDependencyNotation());
+    private static class CoffeeScript implements LanguageTransform<CoffeeScriptSourceSet, JavaScriptSourceCode> {
+        @Override
+        public String getLanguageName() {
+            return "coffeeScript";
+        }
+
+        @Override
+        public Class<CoffeeScriptSourceSet> getSourceSetType() {
+            return CoffeeScriptSourceSet.class;
+        }
+
+        @Override
+        public Class<JavaScriptSourceCode> getOutputType() {
+            return JavaScriptSourceCode.class;
+        }
+
+        @Override
+        public Map<String, Class<?>> getBinaryTools() {
+            return Collections.emptyMap();
+        }
+
+        @Override
+        public SourceTransformTaskConfig getTransformTask() {
+            return new SourceTransformTaskConfig() {
+                public String getTaskPrefix() {
+                    return "compile";
                 }
-                coffeeScriptCompile.setRhinoClasspathNotation(getDefaultRhinoDependencyNotation());
-            }
-        });
-        return compileTaskName;
-    }
 
-    private void createJavaScriptCompile(CollectionBuilder<Task> tasks, final PlayApplicationBinarySpecInternal binary, final File buildDir, final CoffeeScriptSourceSet coffeeScriptSourceSet,
-                                         final String compileTaskName) {
-        final String minifyTaskName = "minify" + capitalize(binary.getName()) + capitalize(coffeeScriptSourceSet.getName());
-        tasks.create(minifyTaskName, JavaScriptMinify.class, new Action<JavaScriptMinify>() {
-            @Override
-            public void execute(JavaScriptMinify javaScriptMinify) {
-                javaScriptMinify.dependsOn(compileTaskName);
-                javaScriptMinify.setSource(outputDirectory(buildDir, binary, compileTaskName));
-                javaScriptMinify.setPlayPlatform(binary.getTargetPlatform());
+                public Class<? extends DefaultTask> getTaskType() {
+                    return PlayCoffeeScriptCompile.class;
+                }
 
-                File minifyOutputDirectory = outputDirectory(buildDir, binary, minifyTaskName);
-                javaScriptMinify.setDestinationDir(minifyOutputDirectory);
-                binary.getAssets().builtBy(javaScriptMinify);
-                binary.getAssets().addAssetDir(minifyOutputDirectory);
-            }
-        });
-    }
+                public void configureTask(Task task, BinarySpec binarySpec, LanguageSourceSet sourceSet, ServiceRegistry serviceRegistry) {
+                    PlayApplicationBinarySpecInternal binary = (PlayApplicationBinarySpecInternal) binarySpec;
+                    CoffeeScriptSourceSet coffeeScriptSourceSet = (CoffeeScriptSourceSet) sourceSet;
+                    PlayCoffeeScriptCompile coffeeScriptCompile = (PlayCoffeeScriptCompile) task;
+                    JavaScriptSourceSet javaScriptSourceSet = binary.getGeneratedJavaScript().get(coffeeScriptSourceSet);
 
-    private File outputDirectory(File buildDir, PlayApplicationBinarySpec binary, String taskName) {
-        return new File(buildDir, String.format("%s/src/%s", binary.getName(), taskName));
+                    coffeeScriptCompile.setDescription("Compiles coffeescript for the " + coffeeScriptSourceSet.getDisplayName() + ".");
+
+                    File generatedSourceDir = binary.getNamingScheme().getOutputDirectory(task.getProject().getBuildDir(), "src");
+                    File outputDirectory = new File(generatedSourceDir, javaScriptSourceSet.getName());
+                    coffeeScriptCompile.setDestinationDir(outputDirectory);
+                    coffeeScriptCompile.setSource(coffeeScriptSourceSet.getSource());
+
+                    javaScriptSourceSet.getSource().srcDir(outputDirectory);
+                    javaScriptSourceSet.builtBy(coffeeScriptCompile);
+                }
+            };
+        }
+
+        @Override
+        public boolean applyToBinary(BinarySpec binary) {
+            return binary instanceof PlayApplicationBinarySpecInternal;
+        }
     }
 }

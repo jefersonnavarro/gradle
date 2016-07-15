@@ -16,19 +16,18 @@
 
 package org.gradle.platform.base;
 
-import org.gradle.api.*;
+import org.gradle.api.BuildableComponentSpec;
+import org.gradle.api.DomainObjectSet;
+import org.gradle.api.Incubating;
 import org.gradle.internal.HasInternalProtocol;
 import org.gradle.language.base.LanguageSourceSet;
+import org.gradle.model.ModelMap;
 
 /**
- * Represents a binary artifact that is the result of building a project component.
+ * Represents a binary that is the result of building a component.
  */
 @Incubating @HasInternalProtocol
-public interface BinarySpec extends BuildableModelElement, Named {
-    /**
-     * Returns a human-consumable display name for this binary.
-     */
-    String getDisplayName();
+public interface BinarySpec extends BuildableComponentSpec {
 
     /**
      * Can this binary be built in the current environment?
@@ -36,28 +35,19 @@ public interface BinarySpec extends BuildableModelElement, Named {
     boolean isBuildable();
 
     /**
-     * The source sets used to compile this binary.
-     */
-    DomainObjectSet<LanguageSourceSet> getSource();
-
-    /**
-     * Adds one or more {@link org.gradle.language.base.LanguageSourceSet}s that are used to compile this binary.
-     * <p/>
-     * This method accepts the following types:
+     * The sources owned by this binary.
      *
-     * <ul>
-     *     <li>A {@link org.gradle.language.base.FunctionalSourceSet}</li>
-     *     <li>A {@link org.gradle.language.base.LanguageSourceSet}</li>
-     *     <li>A Collection of {@link org.gradle.language.base.LanguageSourceSet}s</li>
-     * </ul>
+     * @return the sources owned by the binary.
      */
-    // TODO:DAZ Remove this
-    void source(Object source);
+    ModelMap<LanguageSourceSet> getSources();
 
     /**
-     * Configure the source sets used to build this binary.
+     * Returns all inputs of the binary. This includes source sets owned by the binary,
+     * and other source sets created elsewhere (e.g. inherited from the binary's component).
+     *
+     * @return all inputs of the binary.
      */
-    void sources(Action<? super PolymorphicDomainObjectContainer<LanguageSourceSet>> action);
+    DomainObjectSet<LanguageSourceSet> getInputs();
 
     /**
      * The set of tasks associated with this binary.

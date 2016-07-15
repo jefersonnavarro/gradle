@@ -18,8 +18,9 @@ package org.gradle.internal.resolve.result
 
 import org.gradle.api.artifacts.ModuleVersionIdentifier
 import org.gradle.api.artifacts.ModuleVersionSelector
-import org.gradle.internal.component.external.model.ModuleComponentResolveMetaData
-import org.gradle.internal.component.model.ComponentResolveMetaData
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import org.gradle.internal.component.external.model.ModuleComponentResolveMetadata
+import org.gradle.internal.component.model.ComponentResolveMetadata
 import org.gradle.internal.resolve.ModuleVersionNotFoundException
 import org.gradle.internal.resolve.ModuleVersionResolveException
 import spock.lang.Specification
@@ -31,7 +32,7 @@ class DefaultBuildableComponentResolveResultTest extends Specification {
 
     def "can query id and meta-data when resolved"() {
         ModuleVersionIdentifier id = Stub()
-        ModuleComponentResolveMetaData metaData = Stub() {
+        ModuleComponentResolveMetadata metaData = Stub() {
             getId() >> id
         }
 
@@ -96,25 +97,18 @@ class DefaultBuildableComponentResolveResultTest extends Specification {
 
     def "failure is null when successfully resolved"() {
         when:
-        result.resolved(Mock(ModuleComponentResolveMetaData))
+        result.resolved(Mock(ModuleComponentResolveMetadata))
 
         then:
         result.failure == null
     }
 
-    def "fails with not found exception when not found using selector"() {
-        def selector = Mock(ModuleVersionSelector)
-
-        when:
-        result.notFound(selector)
-
-        then:
-        result.failure instanceof ModuleVersionNotFoundException
-        result.failure.selector == selector
-    }
-
-    def "fails with not found exception when not found using module version id"() {
-        def id = Mock(ModuleVersionIdentifier)
+    def "fails with not found exception when not found using module component id"() {
+        def id = Mock(ModuleComponentIdentifier) {
+            it.group >> "org.gradle"
+            it.module >> "core"
+            it.version >> "2.3"
+        }
 
         when:
         result.notFound(id)
@@ -125,7 +119,7 @@ class DefaultBuildableComponentResolveResultTest extends Specification {
 
     def "copies results to an id resolve result"() {
         def idResult = Mock(BuildableComponentIdResolveResult)
-        def metaData = Stub(ComponentResolveMetaData)
+        def metaData = Stub(ComponentResolveMetadata)
 
         given:
         result.attempted("a")

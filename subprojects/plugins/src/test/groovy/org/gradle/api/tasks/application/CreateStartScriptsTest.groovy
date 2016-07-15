@@ -15,11 +15,19 @@
  */
 package org.gradle.api.tasks.application
 
-import spock.lang.Specification
+import org.gradle.api.internal.plugins.UnixStartScriptGenerator
+import org.gradle.api.internal.plugins.WindowsStartScriptGenerator
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 import org.gradle.util.TestUtil
 
-class CreateStartScriptsTest extends Specification {
-    final CreateStartScripts task = TestUtil.createTask(CreateStartScripts.class)
+class CreateStartScriptsTest extends AbstractProjectBuilderSpec {
+    final CreateStartScripts task = TestUtil.create(temporaryFolder).task(CreateStartScripts.class)
+
+    def "uses default start script generators"() {
+        expect:
+        task.unixStartScriptGenerator instanceof UnixStartScriptGenerator
+        task.windowsStartScriptGenerator instanceof WindowsStartScriptGenerator
+    }
 
     def scriptNameDefaultsToApplicationName() {
         task.outputDir = new File('output')
@@ -31,7 +39,7 @@ class CreateStartScriptsTest extends Specification {
         task.unixScript == new File(task.outputDir, 'myApp')
         task.windowsScript == new File(task.outputDir, 'myApp.bat')
     }
-    
+
     def optsEnvironmentVariableNameDefaultsToApplicationName() {
         when:
         task.applicationName = null

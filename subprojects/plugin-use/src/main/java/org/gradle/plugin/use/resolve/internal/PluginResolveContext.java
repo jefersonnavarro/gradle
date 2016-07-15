@@ -22,5 +22,9 @@ import org.gradle.plugin.internal.PluginId;
 public interface PluginResolveContext {
     void addLegacy(PluginId pluginId, String m2RepoUrl, Object dependencyNotation);
 
+    void addLegacy(PluginId pluginId, Object dependencyNotation);
+
     void add(PluginImplementation<?> plugin);
+
+    void addFromDifferentLoader(PluginImplementation<?> plugin);
 }

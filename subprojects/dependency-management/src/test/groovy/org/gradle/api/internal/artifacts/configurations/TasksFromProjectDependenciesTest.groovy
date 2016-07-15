@@ -22,21 +22,23 @@ import org.gradle.api.artifacts.DependencySet
 import org.gradle.api.artifacts.ProjectDependency
 import org.gradle.api.internal.project.ProjectInternal
 import org.gradle.api.internal.tasks.TaskDependencyResolveContext
+import org.gradle.initialization.ProjectAccessListener
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 import org.gradle.util.TestUtil
-import spock.lang.Specification
 
-class TasksFromProjectDependenciesTest extends Specification {
+class TasksFromProjectDependenciesTest extends AbstractProjectBuilderSpec {
 
     def dependencies = Mock(DependencySet)
     def context = Mock(TaskDependencyResolveContext)
-    def project1 = TestUtil.createRootProject()
+    def projectAccessListener = Mock(ProjectAccessListener)
+    def project1 = TestUtil.create(temporaryFolder).rootProject()
     def project2 = TestUtil.createChildProject(project1, "project2")
     def projectDep1 = Mock(ProjectDependency) { getDependencyProject() >> project1 }
     def projectDep2 = Mock(ProjectDependency) { getDependencyProject() >> project2 }
     def taskContainerDummy = project1.tasks
 
     def "provides tasks from project dependencies"() {
-        def tasks = new TasksFromProjectDependencies("buildNeeded", dependencies)
+        def tasks = new TasksFromProjectDependencies("buildNeeded", dependencies, projectAccessListener)
 
         project1.tasks.create "buildNeeded"
         project2.tasks.create "foo"
@@ -48,8 +50,8 @@ class TasksFromProjectDependenciesTest extends Specification {
         0 * context._
     }
 
-    def "evaluates target project"() {
-        def tasks = new TasksFromProjectDependencies("buildNeeded", dependencies)
+    def "notifies the listener about project access"() {
+        def tasks = new TasksFromProjectDependencies("buildNeeded", dependencies, projectAccessListener)
 
         def project1 = Mock(ProjectInternal) { getTasks() >> taskContainerDummy }
         def projectDep1 = Mock(ProjectDependency) { getDependencyProject() >> project1}
@@ -57,6 +59,6 @@ class TasksFromProjectDependenciesTest extends Specification {
         when: tasks.resolveProjectDependencies(context, [projectDep1] as Set)
 
         then:
-        1 * project1.evaluate()
+        1 * projectAccessListener.beforeResolvingProjectDependency(project1)
     }
 }

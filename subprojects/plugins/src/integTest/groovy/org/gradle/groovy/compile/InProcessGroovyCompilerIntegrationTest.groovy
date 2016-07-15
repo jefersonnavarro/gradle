@@ -15,7 +15,12 @@
  */
 package org.gradle.groovy.compile
 
-class   InProcessGroovyCompilerIntegrationTest extends ApiGroovyCompilerIntegrationSpec {
+import org.gradle.test.fixtures.file.LeaksFileHandles
+import org.gradle.util.TestPrecondition
+import spock.lang.Issue
+
+@LeaksFileHandles
+class InProcessGroovyCompilerIntegrationTest extends ApiGroovyCompilerIntegrationSpec {
 
     String compilerConfiguration() {
 '''
@@ -25,4 +30,9 @@ class   InProcessGroovyCompilerIntegrationTest extends ApiGroovyCompilerIntegrat
 '''
     }
 
+    @Override
+    @Issue('gradle/core-issues/#125')
+    protected boolean gradleLeaksIntoAnnotationProcessor() {
+        return !TestPrecondition.FIX_TO_WORK_ON_JAVA9.fulfilled
+    }
 }

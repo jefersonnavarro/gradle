@@ -18,10 +18,11 @@ package org.gradle.launcher.daemon.client;
 import org.gradle.api.Nullable;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.logging.Logging;
-import org.gradle.launcher.daemon.context.DaemonInstanceDetails;
-import org.gradle.messaging.remote.internal.Connection;
-import org.gradle.messaging.remote.internal.MessageIOException;
-import org.gradle.messaging.remote.internal.RemoteConnection;
+import org.gradle.internal.remote.internal.Connection;
+import org.gradle.internal.remote.internal.MessageIOException;
+import org.gradle.internal.remote.internal.RemoteConnection;
+import org.gradle.launcher.daemon.context.DaemonConnectDetails;
+import org.gradle.launcher.daemon.protocol.Message;
 
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -31,35 +32,31 @@ import java.util.concurrent.locks.ReentrantLock;
  *
  * <p>Currently, dispatch is thread safe, and receive is not.
  */
-public class DaemonClientConnection implements Connection<Object> {
+public class DaemonClientConnection implements Connection<Message> {
     private final static Logger LOG = Logging.getLogger(DaemonClientConnection.class);
-    private final RemoteConnection<Object> connection;
-    private final DaemonInstanceDetails daemon;
+    private final RemoteConnection<Message> connection;
+    private final DaemonConnectDetails daemon;
     private final StaleAddressDetector staleAddressDetector;
     private boolean hasReceived;
     private final Lock dispatchLock = new ReentrantLock();
 
-    public DaemonClientConnection(RemoteConnection<Object> connection, DaemonInstanceDetails daemon, StaleAddressDetector staleAddressDetector) {
+    public DaemonClientConnection(RemoteConnection<Message> connection, DaemonConnectDetails daemon, StaleAddressDetector staleAddressDetector) {
         this.connection = connection;
         this.daemon = daemon;
         this.staleAddressDetector = staleAddressDetector;
     }
 
-    public void requestStop() {
-        LOG.debug("thread {}: requesting connection stop", Thread.currentThread().getId());
-        connection.requestStop();
-    }
-
-    public DaemonInstanceDetails getDaemon() {
+    public DaemonConnectDetails getDaemon() {
         return daemon;
     }
 
-    public void dispatch(Object message) throws DaemonConnectionException {
+    public void dispatch(Message message) throws DaemonConnectionException {
         LOG.debug("thread {}: dispatching {}", Thread.currentThread().getId(), message.getClass());
         try {
             dispatchLock.lock();
             try {
                 connection.dispatch(message);
+                connection.flush();
             } finally {
                 dispatchLock.unlock();
             }
@@ -73,7 +70,7 @@ public class DaemonClientConnection implements Connection<Object> {
     }
 
     @Nullable
-    public Object receive() throws DaemonConnectionException {
+    public Message receive() throws DaemonConnectionException {
         try {
             return connection.receive();
         } catch (MessageIOException e) {

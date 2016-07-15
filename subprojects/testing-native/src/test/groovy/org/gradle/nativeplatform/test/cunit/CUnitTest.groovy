@@ -14,22 +14,25 @@
  * limitations under the License.
  */
 package org.gradle.nativeplatform.test.cunit
-import org.gradle.language.c.plugins.CPlugin
-import org.gradle.model.internal.core.ModelPath
-import org.gradle.model.internal.type.ModelType
+import org.gradle.language.c.CSourceSet
 import org.gradle.nativeplatform.NativeLibrarySpec
-import org.gradle.platform.base.test.TestSuiteContainer
-import org.gradle.nativeplatform.test.cunit.plugins.CUnitPlugin
+import org.gradle.nativeplatform.test.cunit.plugins.CUnitConventionPlugin
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
+import org.gradle.testing.base.TestSuiteSpec
 import org.gradle.util.TestUtil
+import org.junit.Rule
 import spock.lang.Specification
 
-class CUnitTest extends Specification {
-    final def project = TestUtil.createRootProject();
+import static org.gradle.model.internal.type.ModelTypes.modelMap
 
-    def "check the correct binary type are created for the test suite"() {
-        when:
-        project.pluginManager.apply(CPlugin)
-        project.pluginManager.apply(CUnitPlugin)
+class CUnitTest extends Specification {
+    @Rule
+    TestNameTestDirectoryProvider testDir = new TestNameTestDirectoryProvider()
+    final def project = TestUtil.create(testDir).rootProject();
+
+    def "creates a test suite for each library under test"() {
+        given:
+        project.pluginManager.apply(CUnitConventionPlugin)
         project.model {
             components {
                 main(NativeLibrarySpec)
@@ -37,8 +40,17 @@ class CUnitTest extends Specification {
         }
         project.evaluate()
 
+        when:
+        CUnitTestSuiteSpec testSuite = project.modelRegistry.realize("testSuites", modelMap(TestSuiteSpec)).mainTest
+        def sources = testSuite.sources.values()
+        def binaries = testSuite.binaries.values()
+
         then:
-        def binaries = project.modelRegistry.realize(ModelPath.path("testSuites"), ModelType.of(TestSuiteContainer)).getByName("mainTest").binaries
-        binaries.collect({ it instanceof CUnitTestSuiteBinarySpec }) == [true] * binaries.size()
+        sources.size() == 2
+        sources.every { it instanceof CSourceSet }
+
+        and:
+        binaries.size() == 1
+        binaries.every { it instanceof CUnitTestSuiteBinarySpec }
     }
 }

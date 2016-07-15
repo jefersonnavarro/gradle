@@ -16,6 +16,7 @@
 
 package org.gradle.integtests.fixtures.executer;
 
+import org.gradle.api.JavaVersion;
 import org.gradle.internal.jvm.Jvm;
 import org.gradle.internal.os.OperatingSystem;
 import org.gradle.test.fixtures.file.TestDirectoryProvider;
@@ -61,14 +62,39 @@ public class DefaultGradleDistribution implements GradleDistribution {
         if (jvm.isIbmJvm() && isVersion("1.0-milestone-4")) {
             return false;
         }
+
+        JavaVersion javaVersion = jvm.getJavaVersion();
+        if (javaVersion == null) {
+            throw new IllegalArgumentException();
+        }
+
+        return worksWith(javaVersion);
+    }
+
+    private boolean worksWith(JavaVersion javaVersion) {
         // 0.9-rc-1 was broken for Java 5
-        if (isVersion("0.9-rc-1")) {
-            return jvm.getJavaVersion().isJava6Compatible();
+        if (isVersion("0.9-rc-1") && javaVersion == JavaVersion.VERSION_1_5) {
+            return false;
         }
+
+        // 1.x works on Java 5 - 8
         if (isSameOrOlder("1.12")) {
-            return jvm.getJavaVersion().isJava5Compatible();
+            return javaVersion.compareTo(JavaVersion.VERSION_1_5) >= 0 && javaVersion.compareTo(JavaVersion.VERSION_1_8) <= 0;
         }
-        return jvm.getJavaVersion().isJava6Compatible();
+
+        // 2.x works on Java 6 - 8
+        if (isSameOrOlder("2.14")) {
+            return javaVersion.compareTo(JavaVersion.VERSION_1_6) >= 0 && javaVersion.compareTo(JavaVersion.VERSION_1_8) <= 0;
+        }
+
+        // 3.x works on Java 7 - 9
+
+        // 3.0-milestone-1 treated Java9 more like Java8, so it's not fully supported yet.
+        if (isVersion("3.0-milestone-1") && javaVersion == JavaVersion.VERSION_1_9) {
+            return false;
+        }
+
+        return javaVersion.compareTo(JavaVersion.VERSION_1_7) >= 0 && javaVersion.compareTo(JavaVersion.VERSION_1_9) <= 0;
     }
 
     public boolean worksWith(OperatingSystem os) {
@@ -78,21 +104,6 @@ public class DefaultGradleDistribution implements GradleDistribution {
             return os.isWindows() || os.isMacOsX() || os.isLinux();
         } else {
             return true;
-        }
-    }
-
-    public boolean isDaemonSupported() {
-        // Milestone 7 was broken on the IBM jvm
-        if (Jvm.current().isIbmJvm() && isVersion("1.0-milestone-7")) {
-            return false;
-        }
-
-        if (OperatingSystem.current().isWindows()) {
-            // On windows, daemon is ok for anything > 1.0-milestone-3
-            return isSameOrNewer("1.0-milestone-4");
-        } else {
-            // Daemon is ok for anything >= 0.9
-            return isSameOrNewer("0.9");
         }
     }
 
@@ -108,6 +119,11 @@ public class DefaultGradleDistribution implements GradleDistribution {
         return isSameOrNewer("1.0-milestone-3");
     }
 
+    @Override
+    public boolean isToolingApiTargetJvmSupported(JavaVersion javaVersion) {
+        return worksWith(javaVersion);
+    }
+
     public boolean isToolingApiNonAsciiOutputSupported() {
         if (OperatingSystem.current().isWindows()) {
             return !isVersion("1.0-milestone-7") && !isVersion("1.0-milestone-8") && !isVersion("1.0-milestone-8a");
@@ -119,8 +135,24 @@ public class DefaultGradleDistribution implements GradleDistribution {
         return isSameOrNewer("2.2-rc-1");
     }
 
+    @Override
+    public boolean isToolingApiEventsInEmbeddedModeSupported() {
+        return isSameOrNewer("2.6-rc-1");
+    }
+
+    @Override
+    public boolean isToolingApiLoggingInEmbeddedModeSupported() {
+        return isSameOrNewer("2.9-rc-1");
+    }
+
     public VersionNumber getArtifactCacheLayoutVersion() {
-        if (isSameOrNewer("2.2-rc-1")) {
+        if (isSameOrNewer("3.0-milestone-1")) {
+            return VersionNumber.parse("2.17");
+        } else if (isSameOrNewer("2.8-rc-1")) {
+            return VersionNumber.parse("2.16");
+        } else if (isSameOrNewer("2.4-rc-1")) {
+            return VersionNumber.parse("2.15");
+        } else if (isSameOrNewer("2.2-rc-1")) {
             return VersionNumber.parse("2.14");
         } else if (isSameOrNewer("2.1-rc-3")) {
             return VersionNumber.parse("2.13");

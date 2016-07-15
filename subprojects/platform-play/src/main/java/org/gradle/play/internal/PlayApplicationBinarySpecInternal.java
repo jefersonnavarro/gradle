@@ -17,7 +17,10 @@
 package org.gradle.play.internal;
 
 import org.gradle.api.file.FileCollection;
-import org.gradle.language.scala.ScalaLanguageSourceSet;
+import org.gradle.api.internal.file.SourceDirectorySetFactory;
+import org.gradle.jvm.internal.WithJvmAssembly;
+import org.gradle.language.base.LanguageSourceSet;
+import org.gradle.language.scala.internal.ScalaJvmAssembly;
 import org.gradle.platform.base.internal.BinarySpecInternal;
 import org.gradle.play.PlayApplicationBinarySpec;
 import org.gradle.play.internal.toolchain.PlayToolChainInternal;
@@ -25,22 +28,25 @@ import org.gradle.play.platform.PlayPlatform;
 
 import java.io.File;
 
-public interface PlayApplicationBinarySpecInternal extends PlayApplicationBinarySpec, BinarySpecInternal {
+public interface PlayApplicationBinarySpecInternal extends PlayApplicationBinarySpec, BinarySpecInternal, WithJvmAssembly {
     void setTargetPlatform(PlayPlatform platform);
 
     void setToolChain(PlayToolChainInternal toolChain);
 
+    @Override
     PlayToolChainInternal getToolChain();
 
     void setJarFile(File file);
 
     void setAssetsJarFile(File file);
 
-    void setGeneratedScala(ScalaLanguageSourceSet scalaSources);
-
-    // TODO:DAZ Should be taken from the LanguageSourceSet instances?
-    // TODO:DAZ Should be a Classpath instance
     FileCollection getClasspath();
 
     void setClasspath(FileCollection applicationClasspath);
+
+    @Override
+    ScalaJvmAssembly getAssembly();
+
+    void addGeneratedScala(LanguageSourceSet input, SourceDirectorySetFactory sourceDirectorySetFactory);
+    void addGeneratedJavaScript(LanguageSourceSet input, SourceDirectorySetFactory sourceDirectorySetFactory);
 }

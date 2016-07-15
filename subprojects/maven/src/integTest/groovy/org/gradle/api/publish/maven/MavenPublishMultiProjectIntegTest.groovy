@@ -16,6 +16,9 @@
 
 package org.gradle.api.publish.maven
 
+import org.gradle.integtests.fixtures.publish.maven.AbstractMavenPublishIntegTest
+import spock.lang.Issue
+
 class MavenPublishMultiProjectIntegTest extends AbstractMavenPublishIntegTest {
     def project1 = mavenRepo.module("org.gradle.test", "project1", "1.0")
     def project2 = mavenRepo.module("org.gradle.test", "project2", "2.0")
@@ -83,7 +86,7 @@ project(":project3") {
         fails "publish"
 
         then:
-        failure.assertHasDescription "A problem occurred configuring project ':project1'."
+        failure.assertHasCause "Exception thrown while executing model rule: PublishingPlugin.Rules#publishing"
         failure.assertHasCause "Publishing is not yet able to resolve a dependency on a project with multiple different publications."
     }
 
@@ -184,6 +187,70 @@ project(":project2") {
 
         project1.assertPublishedAsJavaModule()
         project1.parsedPom.scopes.runtime.assertDependsOn("org.gradle.test:project2:2.0")
+    }
+
+    @Issue("GRADLE-3366")
+    def "project dependency excludes are correctly reflected in pom when using maven-publish plugin"() {
+        given:
+        settingsFile << """
+include "project1", "project2"
+"""
+
+        buildFile << """
+allprojects {
+    apply plugin: 'java'
+    apply plugin: 'maven-publish'
+
+    group = "org.gradle.test"
+
+    repositories {
+        mavenCentral()
+    }
+}
+
+project(":project1") {
+    version = "1.0"
+
+    dependencies {
+        compile "commons-collections:commons-collections:3.2.2"
+        compile "commons-io:commons-io:1.4"
+    }
+}
+
+project(":project2") {
+    version = "2.0"
+
+    dependencies {
+        compile project(":project1"), {
+            exclude module: "commons-collections"
+            exclude group: "commons-io"
+        }
+    }
+
+    publishing {
+        repositories {
+            maven { url "${mavenRepo.uri}" }
+        }
+        publications {
+            maven(MavenPublication) {
+                from components.java
+            }
+        }
+    }
+}
+"""
+        when:
+        run "publish"
+
+        then:
+        project2.assertPublishedAsJavaModule()
+        def dependency = project2.parsedPom.scopes.runtime.expectDependency("org.gradle.test:project1:1.0")
+        dependency.exclusions.size() == 2
+        def sorted = dependency.exclusions.sort { it.groupId }
+        sorted[0].groupId == "*"
+        sorted[0].artifactId == "commons-collections"
+        sorted[1].groupId == "commons-io"
+        sorted[1].artifactId == "*"
     }
 
     private void createBuildScripts(String append = "") {

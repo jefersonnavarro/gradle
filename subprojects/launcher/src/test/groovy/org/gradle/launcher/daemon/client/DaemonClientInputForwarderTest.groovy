@@ -15,10 +15,9 @@
  */
 package org.gradle.launcher.daemon.client
 
-import org.gradle.internal.id.IdGenerator
 import org.gradle.launcher.daemon.protocol.CloseInput
 import org.gradle.launcher.daemon.protocol.ForwardInput
-import org.gradle.messaging.dispatch.Dispatch
+import org.gradle.internal.dispatch.Dispatch
 import org.gradle.util.ConcurrentSpecification
 
 import java.util.concurrent.LinkedBlockingQueue
@@ -54,7 +53,7 @@ class DaemonClientInputForwarderTest extends ConcurrentSpecification {
     def forwarder
 
     def createForwarder() {
-        forwarder = new DaemonClientInputForwarder(inputStream, dispatch, executorFactory, { 12 } as IdGenerator, bufferSize)
+        forwarder = new DaemonClientInputForwarder(inputStream, dispatch, executorFactory, bufferSize)
         forwarder.start()
     }
 

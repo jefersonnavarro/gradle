@@ -17,24 +17,26 @@ package org.gradle.api.internal.artifacts.dependencies;
 
 import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.artifacts.SelfResolvingDependency;
-import org.gradle.api.file.FileCollection;
 import org.gradle.api.internal.artifacts.DependencyResolveContext;
+import org.gradle.api.internal.file.FileCollectionInternal;
 import org.gradle.api.tasks.TaskDependency;
-import static org.gradle.util.WrapUtil.*;
-import static org.hamcrest.Matchers.*;
 import org.jmock.Expectations;
 import org.jmock.integration.junit4.JMock;
 import org.jmock.integration.junit4.JUnit4Mockery;
-import static org.junit.Assert.*;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
 import java.io.File;
 
+import static org.gradle.util.WrapUtil.toLinkedSet;
+import static org.gradle.util.WrapUtil.toSet;
+import static org.hamcrest.Matchers.*;
+import static org.junit.Assert.*;
+
 @RunWith(JMock.class)
 public class DefaultSelfResolvingDependencyTest {
     private final JUnit4Mockery context = new JUnit4Mockery();
-    private final FileCollection source = context.mock(FileCollection.class);
+    private final FileCollectionInternal source = context.mock(FileCollectionInternal.class);
     private final DefaultSelfResolvingDependency dependency = new DefaultSelfResolvingDependency(source);
 
     @Test
@@ -49,12 +51,12 @@ public class DefaultSelfResolvingDependencyTest {
         final DependencyResolveContext resolveContext = context.mock(DependencyResolveContext.class);
 
         context.checking(new Expectations() {{
-            one(resolveContext).add(source);
+            oneOf(resolveContext).add(source);
         }});
 
         dependency.resolve(resolveContext);
     }
-    
+
     @Test
     public void usesSourceFileCollectionToResolveFiles() {
         final File file = new File("file");
@@ -80,7 +82,7 @@ public class DefaultSelfResolvingDependencyTest {
     @Test
     public void contentsAreEqualWhenFileSetsAreEqual() {
         SelfResolvingDependency equalDependency = new DefaultSelfResolvingDependency(source);
-        SelfResolvingDependency differentSource = new DefaultSelfResolvingDependency(context.mock(FileCollection.class, "other"));
+        SelfResolvingDependency differentSource = new DefaultSelfResolvingDependency(context.mock(FileCollectionInternal.class, "other"));
         Dependency differentType = context.mock(Dependency.class);
 
         assertTrue(dependency.contentEquals(dependency));

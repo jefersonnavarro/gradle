@@ -33,12 +33,14 @@ class ReportGeneratorTest extends ResultSpecification {
         result2.current << operation()
         result2.current << operation()
         store.report(result2)
-        store.close()
 
         when:
         generator.generate(store, reportDir)
 
         then:
         reportDir.file("index.html").isFile()
+
+        cleanup:
+        store.close()
     }
 }

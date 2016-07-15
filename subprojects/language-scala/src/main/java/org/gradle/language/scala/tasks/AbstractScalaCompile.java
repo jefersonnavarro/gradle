@@ -19,8 +19,10 @@ package org.gradle.language.scala.tasks;
 import com.google.common.base.Predicate;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.gradle.api.Incubating;
 import org.gradle.api.Project;
 import org.gradle.api.internal.tasks.scala.DefaultScalaJavaJointCompileSpec;
+import org.gradle.api.internal.tasks.scala.DefaultScalaJavaJointCompileSpecFactory;
 import org.gradle.api.internal.tasks.scala.ScalaCompileSpec;
 import org.gradle.api.internal.tasks.scala.ScalaJavaJointCompileSpec;
 import org.gradle.api.logging.Logger;
@@ -40,7 +42,8 @@ import java.util.Set;
 /**
  * An abstract Scala compile task sharing common functionality for compiling scala.
  */
-abstract public class AbstractScalaCompile extends AbstractCompile {
+@Incubating
+public abstract class AbstractScalaCompile extends AbstractCompile {
     protected static final Logger LOGGER = Logging.getLogger(AbstractScalaCompile.class);
     private final BaseScalaCompileOptions scalaCompileOptions;
     private final CompileOptions compileOptions = new CompileOptions();
@@ -67,6 +70,7 @@ abstract public class AbstractScalaCompile extends AbstractCompile {
 
     abstract protected org.gradle.language.base.internal.compile.Compiler<ScalaJavaJointCompileSpec> getCompiler(ScalaJavaJointCompileSpec spec);
 
+    @Override
     @TaskAction
     protected void compile() {
         ScalaJavaJointCompileSpec spec = createSpec();
@@ -75,7 +79,7 @@ abstract public class AbstractScalaCompile extends AbstractCompile {
     }
 
     protected ScalaJavaJointCompileSpec createSpec() {
-        DefaultScalaJavaJointCompileSpec spec = new DefaultScalaJavaJointCompileSpec();
+        DefaultScalaJavaJointCompileSpec spec = new DefaultScalaJavaJointCompileSpecFactory(compileOptions).create();
         spec.setSource(getSource());
         spec.setDestinationDir(getDestinationDir());
         spec.setWorkingDir(getProject().getProjectDir());
@@ -90,7 +94,7 @@ abstract public class AbstractScalaCompile extends AbstractCompile {
 
     protected void configureIncrementalCompilation(ScalaCompileSpec spec) {
 
-        Map<File, File> globalAnalysisMap = getOrCreateGlobalAnalysisMap();
+        Map<File, File> globalAnalysisMap = createOrGetGlobalAnalysisMap();
         HashMap<File, File> filteredMap = filterForClasspath(globalAnalysisMap, spec.getClasspath());
         spec.setAnalysisMap(filteredMap);
 
@@ -102,7 +106,7 @@ abstract public class AbstractScalaCompile extends AbstractCompile {
     }
 
     @SuppressWarnings("unchecked")
-    protected Map<File, File> getOrCreateGlobalAnalysisMap() {
+    protected Map<File, File> createOrGetGlobalAnalysisMap() {
         ExtraPropertiesExtension extraProperties = getProject().getRootProject().getExtensions().getExtraProperties();
         Map<File, File> analysisMap;
 

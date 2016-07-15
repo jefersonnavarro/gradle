@@ -17,6 +17,7 @@
 package org.gradle.play.internal.twirl;
 
 import com.google.common.collect.Lists;
+import org.gradle.api.internal.file.RelativeFile;
 import org.gradle.api.internal.tasks.SimpleWorkResult;
 import org.gradle.api.tasks.WorkResult;
 import org.gradle.language.base.internal.compile.Compiler;
@@ -26,7 +27,6 @@ import org.gradle.scala.internal.reflect.ScalaOptionInvocationWrapper;
 import java.io.File;
 import java.io.Serializable;
 import java.util.ArrayList;
-import java.util.List;
 
 /**
  * Twirl compiler uses reflection to load and invoke the actual compiler classes/methods.
@@ -40,14 +40,15 @@ public class TwirlCompiler implements Compiler<TwirlCompileSpec>, Serializable {
         this.adapter = adapter;
     }
 
+    @Override
     public WorkResult execute(TwirlCompileSpec spec) {
         ArrayList<File> outputFiles = Lists.newArrayList();
         try {
             ClassLoader cl = getClass().getClassLoader();
             ScalaMethod compile = adapter.getCompileMethod(cl);
-            Iterable<File> sources = spec.getSources();
-            for (File sourceFile : sources) {
-                Object result = compile.invoke(adapter.createCompileParameters(cl, sourceFile, spec.getSourceDirectory(), spec.getDestinationDir(), spec.isJavaProject()));
+            Iterable<RelativeFile> sources = spec.getSources();
+            for (RelativeFile sourceFile : sources) {
+                Object result = compile.invoke(adapter.createCompileParameters(cl, sourceFile.getFile(), sourceFile.getBaseDir(), spec.getDestinationDir(), spec.getDefaultImports()));
                 ScalaOptionInvocationWrapper<File> maybeFile = new ScalaOptionInvocationWrapper<File>(result);
                 if (maybeFile.isDefined()) {
                     outputFiles.add(maybeFile.get());
@@ -64,7 +65,7 @@ public class TwirlCompiler implements Compiler<TwirlCompileSpec>, Serializable {
         return adapter.getDependencyNotation();
     }
 
-    public List<String> getClassLoaderPackages() {
+    public Iterable<String> getClassLoaderPackages() {
         return adapter.getClassLoaderPackages();
     }
 }

@@ -19,16 +19,72 @@ package org.gradle.launcher.cli.converter
 import org.gradle.cli.CommandLineParser
 import org.gradle.initialization.BuildLayoutParameters
 import org.gradle.launcher.daemon.configuration.DaemonParameters
+import org.gradle.util.UsesNativeServices
 import spock.lang.Specification
+import spock.lang.Unroll
 
+@UsesNativeServices
 class DaemonCommandLineConverterTest extends Specification {
+    @Unroll
+    def "converts daemon options - #options"() {
+        when:
+        def converted = convert(options)
 
-    def "converts daemon options"() {
-        expect:
-        !convert([]).enabled
-        !convert(['--no-daemon']).enabled
-        convert(['--daemon']).enabled
-        convert(['--no-daemon', '--daemon']).enabled
+        then:
+        converted.enabled == useDaemon
+
+        where:
+        options                         | useDaemon
+        []                              | true
+        ['--no-daemon']                 | false
+        ['--foreground', '--no-daemon'] | false
+        ['--no-daemon', '--foreground'] | false
+        ['--daemon']                    | true
+        ['--no-daemon', '--daemon']     | true
+    }
+
+    @Unroll
+    def "can convert foreground option - #options"() {
+        when:
+        def converted = convert(options)
+
+        then:
+        converted.foreground == foregound
+
+        where:
+        options                         | foregound
+        []                              | false
+        ['--foreground']                | true
+        ['--foreground', '--no-daemon'] | true
+        ['--foreground', '--daemon']    | true
+    }
+
+    @Unroll
+    def "can convert stop option - #options"() {
+        when:
+        def converted = convert(options)
+
+        then:
+        converted.stop == stop
+
+        where:
+        options     | stop
+        []          | false
+        ['--stop']  | true
+    }
+
+    @Unroll
+    def "can convert status option - #options"() {
+        when:
+        def converted = convert(options)
+
+        then:
+        converted.status == status
+
+        where:
+        options       | status
+        []            | false
+        ['--status']  | true
     }
 
     private DaemonParameters convert(Iterable args) {

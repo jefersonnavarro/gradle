@@ -18,9 +18,9 @@ package org.gradle.model.internal.report;
 
 import net.jcip.annotations.ThreadSafe;
 import org.gradle.model.internal.core.ModelPath;
-import org.gradle.model.internal.core.ModelPromise;
-import org.gradle.model.internal.core.ModelReference;
+import org.gradle.model.internal.core.MutableModelNode;
 import org.gradle.model.internal.core.rule.describe.ModelRuleDescriptor;
+import org.gradle.model.internal.type.ModelType;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -46,12 +46,12 @@ public class IncompatibleTypeReferenceReporter {
         this.candidateTypes = candidateTypes;
     }
 
-    public static IncompatibleTypeReferenceReporter of(ModelRuleDescriptor creator, ModelPromise promise, ModelReference<?> reference, boolean writable) {
-        ModelPath path = reference.getPath();
-        String pathString = path == null ? "«none»" : path.toString();
+    public static IncompatibleTypeReferenceReporter of(MutableModelNode node, ModelType<?> type, String description, boolean writable) {
+        ModelPath path = node.getPath();
+        ModelRuleDescriptor creatorDescriptor = node.getDescriptor();
         return new IncompatibleTypeReferenceReporter(
-                creator.toString(), pathString, reference.getType().toString(), reference.getDescription(), writable,
-                writable ? promise.getWritableTypeDescriptions() : promise.getReadableTypeDescriptions()
+            creatorDescriptor.toString(), path.toString(), type.toString(), description, writable,
+            node.getTypeDescriptions()
         );
     }
 

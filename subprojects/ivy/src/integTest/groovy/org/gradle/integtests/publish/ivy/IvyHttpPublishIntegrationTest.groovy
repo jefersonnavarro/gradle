@@ -21,16 +21,19 @@ import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.integtests.fixtures.executer.ProgressLoggingFixture
 import org.gradle.internal.jvm.Jvm
 import org.gradle.test.fixtures.file.TestFile
+import org.gradle.test.fixtures.server.http.HttpServer
 import org.gradle.test.fixtures.server.http.IvyHttpModule
 import org.gradle.test.fixtures.server.http.IvyHttpRepository
-import org.gradle.test.fixtures.server.http.HttpServer
 import org.gradle.util.GradleVersion
+import org.gradle.util.Requires
 import org.hamcrest.Matchers
 import org.junit.Rule
-import org.mortbay.jetty.HttpStatus
+import spock.lang.Issue
 import spock.lang.Unroll
 
 import static org.gradle.test.matchers.UserAgentMatcher.matchesNameAndVersion
+import static org.gradle.util.Matchers.matchesRegexp
+import static org.gradle.util.TestPrecondition.FIX_TO_WORK_ON_JAVA9
 
 public class IvyHttpPublishIntegrationTest extends AbstractIntegrationSpec {
     private static final String BAD_CREDENTIALS = '''
@@ -49,41 +52,6 @@ credentials {
         ivyHttpRepo = new IvyHttpRepository(server, ivyRepo)
         module = ivyHttpRepo.module("org.gradle", "publish", "2")
         server.expectUserAgent(matchesNameAndVersion("Gradle", GradleVersion.current().getVersion()))
-    }
-
-    public void canPublishToUnauthenticatedHttpRepository() {
-        given:
-        server.start()
-        settingsFile << 'rootProject.name = "publish"'
-        buildFile << """
-apply plugin: 'java'
-version = '2'
-group = 'org.gradle'
-
-uploadArchives {
-    repositories {
-        ivy {
-            url "${ivyHttpRepo.uri}"
-        }
-    }
-}
-"""
-        and:
-        module.jar.expectPut()
-        module.jar.sha1.expectPut()
-        module.ivy.expectPut(HttpStatus.ORDINAL_201_Created)
-        module.ivy.sha1.expectPut(HttpStatus.ORDINAL_201_Created)
-
-        when:
-        run 'uploadArchives'
-
-        then:
-        module.assertIvyAndJarFilePublished()
-        module.jarFile.assertIsCopyOf(file('build/libs/publish-2.jar'))
-
-        and:
-        progressLogging.uploadProgressLogged(module.ivy.uri)
-        progressLogging.uploadProgressLogged(module.jar.uri)
     }
 
     @Unroll
@@ -128,7 +96,7 @@ uploadArchives {
         progressLogging.uploadProgressLogged(module.jar.uri)
 
         where:
-        authScheme << [HttpServer.AuthScheme.BASIC, HttpServer.AuthScheme.DIGEST]
+        authScheme << [HttpServer.AuthScheme.BASIC, HttpServer.AuthScheme.DIGEST, HttpServer.AuthScheme.NTLM]
     }
 
     @Unroll
@@ -168,14 +136,16 @@ uploadArchives {
         authScheme                   | credsName | creds
         HttpServer.AuthScheme.BASIC  | 'empty'   | ''
         HttpServer.AuthScheme.DIGEST | 'empty'   | ''
+        HttpServer.AuthScheme.NTLM   | 'empty'   | ''
         HttpServer.AuthScheme.BASIC  | 'bad'     | BAD_CREDENTIALS
         HttpServer.AuthScheme.DIGEST | 'bad'     | BAD_CREDENTIALS
+        HttpServer.AuthScheme.NTLM   | 'bad'     | BAD_CREDENTIALS
     }
 
     public void reportsFailedPublishToHttpRepository() {
         given:
         server.start()
-        def repositoryUrl = "http://localhost:${server.port}"
+        def repositoryPort = server.port
 
         buildFile << """
 apply plugin: 'java'
@@ -208,7 +178,7 @@ uploadArchives {
         and:
         failure.assertHasDescription('Execution failed for task \':uploadArchives\'.')
         failure.assertHasCause('Could not publish configuration \'archives\'')
-        failure.assertHasCause("org.apache.http.conn.HttpHostConnectException: Connection to ${repositoryUrl} refused")
+        failure.assertThatCause(matchesRegexp(".*?Connect to localhost:${repositoryPort} (\\[.*\\])? failed: Connection refused(: connect)?"))
     }
 
     public void usesFirstConfiguredPatternForPublication() {
@@ -246,6 +216,8 @@ uploadArchives {
         module.jarFile.assertIsCopyOf(file('build/libs/publish-2.jar'))
     }
 
+    @Requires(FIX_TO_WORK_ON_JAVA9)
+    @Issue('provide a different large jar')
     public void "can publish large artifact (tools.jar) to authenticated repository"() {
         given:
         server.start()
@@ -291,33 +263,5 @@ uploadTools {
         then:
         module.assertIvyAndJarFilePublished()
         module.jarFile.assertIsCopyOf(new TestFile(toolsJar))
-    }
-
-    public void "does not upload meta-data file if artifact upload fails"() {
-        given:
-        server.start()
-
-        settingsFile << 'rootProject.name = "publish"'
-        buildFile << """
-apply plugin: 'java'
-version = '2'
-group = 'org.gradle'
-uploadArchives {
-    repositories {
-        ivy {
-            url "${ivyHttpRepo.uri}"
-        }
-    }
-}
-"""
-        and:
-        module.jar.expectPut(HttpStatus.ORDINAL_500_Internal_Server_Error)
-
-        when:
-        fails 'uploadArchives'
-
-        then:
-        module.jarFile.assertExists()
-        module.ivyFile.assertDoesNotExist()
     }
 }

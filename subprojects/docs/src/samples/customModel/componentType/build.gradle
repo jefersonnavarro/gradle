@@ -1,6 +1,5 @@
-
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2015 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -15,73 +14,47 @@
  * limitations under the License.
  */
 
-import org.gradle.model.Model
-import org.gradle.model.Mutate
-import org.gradle.model.RuleSource
-import org.gradle.model.collection.CollectionBuilder
+@Managed
+interface ImageComponent extends LibrarySpec {
+    String getTitle()
+    void setTitle(String title)
+    List<String> getSizes()
+    void setSizes(List<String> sizes)
+}
 
-interface ImageComponent extends LibrarySpec { }
-class DefaultImageComponent extends BaseComponentSpec implements ImageComponent {}
-
+@Managed
 interface ImageBinary extends BinarySpec {
     String getTitle()
+    void setTitle(String title)
     String getSize()
+    void setSize(String size)
 }
 
-class DefaultImageBinary extends BaseBinarySpec implements ImageBinary {
-    String title
-    String size
-}
-
-class ImagesExtension {
-    List<String> titles = new ArrayList<String>()
-    List<String> sizes = new ArrayList<String>()
-}
-
-class MyImageRenderingPlugin implements Plugin<Project> {
-    void apply(Project project) {
+class MyImageRenderingPlugin extends RuleSource {
+    @ComponentType
+    void registerComponent(TypeBuilder<ImageComponent> builder) {
     }
 
-    static class Rules extends RuleSource {
-        @Model("images")
-        ImagesExtension createSampleExtension() {
-             return new ImagesExtension()
-        }
+    @ComponentType
+    void registerBinary(TypeBuilder<ImageBinary> builder) {
+    }
 
-        @ComponentType
-        void register(ComponentTypeBuilder<ImageComponent> builder) {
-            builder.defaultImplementation(DefaultImageComponent)
-        }
-
-        @Mutate
-        void createImageComponents(CollectionBuilder<ImageComponent> sampleLibraries, ImagesExtension imagesExtension) {
-            for (String libraryName : imagesExtension.getTitles()) {
-                sampleLibraries.create(libraryName)
+    @ComponentBinaries
+    void createBinariesForBinaryComponent(ModelMap<ImageBinary> binaries, ImageComponent library) {
+        library.sizes.each { fontSize ->
+            binaries.create(fontSize) {
+                size = fontSize;
+                title = library.title
             }
         }
+    }
 
-        @BinaryType
-        void register(BinaryTypeBuilder<ImageBinary> builder) {
-            builder.defaultImplementation(DefaultImageBinary)
-        }
-
-        @ComponentBinaries
-        void createBinariesForBinaryComponent(CollectionBuilder<ImageBinary> binaries, ImageComponent library, ImagesExtension imagesExtension) {
-            imagesExtension.sizes.each{ fontSize ->
-                binaries.create("${library.name}${fontSize}Binary"){
-                    it.size = fontSize;
-                    it.title = library.name
-                }
-            }
-        }
-
-        @BinaryTasks
-        void createRenderingTasks(CollectionBuilder<Task> tasks, ImageBinary binary) {
-            tasks.create("render${binary.title}${binary.size}Svg", RenderSvg){
-                it.content = binary.title;
-                it.fontSize = binary.size;
-                it.outputFile = new File(it.project.buildDir, "renderedSvg/${binary.title}_${binary.size}.svg")
-            }
+    @BinaryTasks
+    void createRenderingTasks(ModelMap<Task> tasks, ImageBinary binary) {
+        tasks.create(binary.tasks.taskName("render", "svg"), RenderSvg){
+            it.content = binary.title;
+            it.fontSize = binary.size;
+            it.outputFile = new File(it.project.buildDir, "renderedSvg/${binary.title}_${binary.size}.svg")
         }
     }
 }
@@ -105,9 +78,15 @@ class RenderSvg extends DefaultTask{
 apply plugin:MyImageRenderingPlugin
 
 model {
-    images {
-        titles << "TitleA" << "TitleB"
-        sizes << "14px" << "28px" << "40px"
+    components {
+        imageA(ImageComponent) {
+            title = "TitleA"
+            sizes = ["14px", "28px", "40px"]
+        }
+        imageB(ImageComponent) {
+            title = "TitleB"
+            sizes = ["14px", "28px", "40px"]
+        }
     }
 }
 

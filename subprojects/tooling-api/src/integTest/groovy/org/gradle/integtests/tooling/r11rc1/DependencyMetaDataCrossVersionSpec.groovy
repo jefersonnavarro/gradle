@@ -15,14 +15,12 @@
  */
 package org.gradle.integtests.tooling.r11rc1
 
-import org.gradle.integtests.tooling.fixture.TargetGradleVersion
 import org.gradle.integtests.tooling.fixture.ToolingApiSpecification
 import org.gradle.test.fixtures.maven.MavenFileRepository
 import org.gradle.tooling.model.ExternalDependency
 import org.gradle.tooling.model.eclipse.EclipseProject
 import org.gradle.tooling.model.idea.IdeaProject
 
-@TargetGradleVersion('>=1.1')
 class DependencyMetaDataCrossVersionSpec extends ToolingApiSpecification {
 
     def "idea libraries contain gradle module information"() {
@@ -43,7 +41,7 @@ class DependencyMetaDataCrossVersionSpec extends ToolingApiSpecification {
         prepareBuild()
 
         when:
-        EclipseProject project = withConnection { connection -> connection.getModel(EclipseProject.class) }
+        EclipseProject project = loadToolingModel(EclipseProject)
         def libs = project.classpath
 
         then:

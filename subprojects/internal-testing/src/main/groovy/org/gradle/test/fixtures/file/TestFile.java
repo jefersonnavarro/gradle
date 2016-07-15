@@ -17,12 +17,10 @@
 package org.gradle.test.fixtures.file;
 
 import groovy.lang.Closure;
+import groovy.lang.DelegatesTo;
 import org.apache.commons.io.FileUtils;
 import org.apache.tools.ant.Project;
-import org.apache.tools.ant.Task;
-import org.apache.tools.ant.taskdefs.Tar;
 import org.apache.tools.ant.taskdefs.Zip;
-import org.apache.tools.ant.types.EnumeratedAttribute;
 import org.codehaus.groovy.runtime.DefaultGroovyMethods;
 import org.gradle.internal.nativeintegration.filesystem.FileSystem;
 import org.gradle.internal.nativeintegration.services.NativeServices;
@@ -38,6 +36,7 @@ import java.util.jar.JarFile;
 import java.util.jar.Manifest;
 
 import static org.junit.Assert.*;
+import static org.junit.Assume.assumeTrue;
 
 public class TestFile extends File {
     private boolean useNativeTools;
@@ -142,6 +141,9 @@ public class TestFile extends File {
 
     public TestFile[] listFiles() {
         File[] children = super.listFiles();
+        if (children == null) {
+            return null;
+        }
         TestFile[] files = new TestFile[children.length];
         for (int i = 0; i < children.length; i++) {
             File child = children[i];
@@ -252,10 +254,10 @@ public class TestFile extends File {
             throw new RuntimeException(e);
         }
     }
-    
+
     public void moveToDirectory(File target) {
         if (target.exists() && !target.isDirectory()) {
-                throw new RuntimeException(String.format("Target '%s' is not a directory", target));
+            throw new RuntimeException(String.format("Target '%s' is not a directory", target));
         }
         try {
             FileUtils.moveFileToDirectory(this, target, true);
@@ -275,6 +277,15 @@ public class TestFile extends File {
     }
 
     /**
+     * Changes the last modified time for this file so that it is different to and smaller than its current last modified time, within file system resolution.
+     */
+    public TestFile makeOlder() {
+        // Just move back 2 seconds
+        setLastModified(lastModified() - 2000L);
+        return this;
+    }
+
+    /**
      * Creates a directory structure specified by the given closure.
      * <pre>
      * dir.create {
@@ -285,7 +296,7 @@ public class TestFile extends File {
      * }
      * </pre>
      */
-    public TestFile create(Closure structure) {
+    public TestFile create(@DelegatesTo(TestWorkspaceBuilder.class) Closure structure) {
         assertTrue(isDirectory() || mkdirs());
         new TestWorkspaceBuilder(this).apply(structure);
         return this;
@@ -320,7 +331,11 @@ public class TestFile extends File {
     }
 
     public TestFile assertIsDir() {
-        assertTrue(String.format("%s is not a directory", this), isDirectory());
+        return assertIsDir("");
+    }
+
+    public TestFile assertIsDir(String hint) {
+        assertTrue(String.format("%s is not a directory. %s", this, hint), isDirectory());
         return this;
     }
 
@@ -439,6 +454,14 @@ public class TestFile extends File {
         return this;
     }
 
+    public Set<String> allDescendants() {
+        Set<String> names = new TreeSet<String>();
+        if (isDirectory()) {
+            visit(names, "", this);
+        }
+        return names;
+    }
+
     private void visit(Set<String> names, String prefix, File file) {
         for (File child : file.listFiles()) {
             if (child.isFile()) {
@@ -510,41 +533,55 @@ public class TestFile extends File {
         zip.setDestFile(zipFile);
         zip.setBasedir(this);
         zip.setExcludes("**");
-        execute(zip);
+        zip.setProject(new Project());
+        zip.execute();
         return zipFile;
     }
 
-    public TestFile zipTo(TestFile zipFile){
-        new TestFileHelper(this).zipTo(zipFile, useNativeTools);
+    public TestFile zipTo(TestFile zipFile) {
+        return zipTo(zipFile, false);
+    }
+
+    public TestFile zipTo(TestFile zipFile, boolean readOnly) {
+        new TestFileHelper(this).zipTo(zipFile, useNativeTools, readOnly);
         return this;
     }
 
     public TestFile tarTo(TestFile tarFile) {
-        new TestFileHelper(this).tarTo(tarFile, useNativeTools);
+        return tarTo(tarFile, false);
+    }
+
+    public TestFile tarTo(TestFile tarFile, boolean readOnly) {
+        new TestFileHelper(this).tarTo(tarFile, useNativeTools, readOnly);
         return this;
     }
 
     public TestFile tgzTo(TestFile tarFile) {
-        Tar tar = new Tar();
-        tar.setBasedir(this);
-        tar.setDestFile(tarFile);
-        tar.setCompression((Tar.TarCompressionMethod) EnumeratedAttribute.getInstance(Tar.TarCompressionMethod.class, "gzip"));
-        execute(tar);
+        return tgzTo(tarFile, false);
+    }
+
+    public TestFile tgzTo(TestFile tarFile, boolean readOnly) {
+        new TestFileHelper(this).tgzTo(tarFile, readOnly);
         return this;
     }
 
     public TestFile tbzTo(TestFile tarFile) {
-        Tar tar = new Tar();
-        tar.setBasedir(this);
-        tar.setDestFile(tarFile);
-        tar.setCompression((Tar.TarCompressionMethod) EnumeratedAttribute.getInstance(Tar.TarCompressionMethod.class, "bzip2"));
-        execute(tar);
+        return tbzTo(tarFile, false);
+    }
+
+    public TestFile tbzTo(TestFile tarFile, boolean readOnly) {
+        new TestFileHelper(this).tbzTo(tarFile, readOnly);
         return this;
     }
 
-    private void execute(Task task) {
-        task.setProject(new Project());
-        task.execute();
+    public TestFile bzip2To(TestFile compressedFile) {
+        new TestFileHelper(this).bzip2To(compressedFile);
+        return this;
+    }
+
+    public TestFile gzipTo(TestFile compressedFile) {
+        new TestFileHelper(this).gzipTo(compressedFile);
+        return this;
     }
 
     public Snapshot snapshot() {
@@ -587,7 +624,11 @@ public class TestFile extends File {
             throw new RuntimeException(e);
         }
     }
-    
+
+    public void assumeExists() {
+        assumeTrue(this.exists());
+    }
+
     public ExecOutput exec(Object... args) {
         return new TestFileHelper(this).execute(Arrays.asList(args), null);
     }

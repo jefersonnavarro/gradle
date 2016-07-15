@@ -113,20 +113,21 @@ class ModelBuilderBackedConsumerConnectionTest extends Specification {
         and:
         1 * target.getModel(modelIdentifier, parameters) >> Stub(BuildResult) { getModel() >> gradleProject }
         1 * adapter.adapt(GradleProject.class, gradleProject, _) >> gradleProject
-        1 * adapter.adapt(GradleBuild.class, _) >> model
+        1 * adapter.adapt(GradleBuild.class, _, _) >> model
         0 * target._
     }
 
     def "fails when build action requested"() {
         given:
         parameters.tasks >> ['a']
+        parameters.entryPointName >> "<api>"
 
         when:
         connection.run(Stub(BuildAction), parameters)
 
         then:
         UnsupportedVersionException e = thrown()
-        e.message == /The version of Gradle you are using (1.6) does not support execution of build actions provided by the tooling API client. Support for this was added in Gradle 1.8 and is available in all later versions./
+        e.message == /The version of Gradle you are using (1.6) does not support the <api>. Support for this is available in Gradle 1.8 and all later versions./
     }
 
     interface TestModelBuilder extends ModelBuilder, ConnectionVersion4, ConfigurableConnection {

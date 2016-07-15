@@ -33,7 +33,7 @@ import spock.lang.Specification
 class GccToolChainTest extends Specification {
     @Rule final TestNameTestDirectoryProvider tmpDirProvider = new TestNameTestDirectoryProvider()
     final FileResolver fileResolver = Mock(FileResolver)
-    Instantiator instantiator = new DirectInstantiator()
+    Instantiator instantiator = DirectInstantiator.INSTANCE
 
     final toolChain = new GccToolChain(instantiator , "gcc", Stub(BuildOperationProcessor), OperatingSystem.current(), fileResolver, Stub(ExecActionFactory), Stub(CompilerMetaDataProviderFactory))
 
@@ -46,7 +46,7 @@ class GccToolChainTest extends Specification {
 
         then:
         1 * action.execute(_) >> { GccPlatformToolChain platformToolChain ->
-            assert platformToolChain.assembler.executable == 'as'
+            assert platformToolChain.assembler.executable == 'gcc'
             assert platformToolChain.cCompiler.executable == 'gcc'
             assert platformToolChain.cppCompiler.executable == 'g++'
             assert platformToolChain.objcCompiler.executable == 'gcc'

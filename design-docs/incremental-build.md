@@ -1,263 +1,245 @@
+# Incremental Build Improvements
+
 This spec defines some improvements to improve incremental build and task up-to-date checks
 
-# Use cases
+## Story: not loading the file snapshots in up-to-date checking
 
-## Plugin author implements a task that does work only on input files that are out-of-date
+- Add hash based pre-check phase to up-to-date checking
+- pre-check hash is calculated from the list of files sorted by their name
+  - the file's name, size and last modified times are added to the hash
+  - there are no file content hashes as part of the pre-check hash
+- if pre-check hash is same as pre-check for previous snapshot, it is considered up-to-date and the actual file snapshot doesn't have to be loaded
+- if pre-check hash is different and snapshot up-to-date check doesn't contain changes (false positive), the persisted hash gets updated
+  - this might happen when file modification times are different, but content is the same
+- The "fileSnapshots" in-memory cache should use weak references for values.
+  - loaded fileSnapshots will get GCd under memory pressure
 
-Some tasks take multiple input files and transform them into multiple output files. When this transformation is expensive,
-the task author may wish to implement the task such that it can perform the transformation only on those input files
-that are out-of-date WRT their output files.
+## Story: Reuse native source file dependency information within a build
 
-An example of such a task is a C++ compilation task. C++ source files are compiled individually to separate object files. Only those
-source files which have changed (or whose output file has changed) since last time the compilation task has executed need to be compiled.
-When the compile settings change, then all source files must be recompiled.
+Gradle parses each source file to determine the source file dependencies.
+Currently this is cached on a per-task basis, meaning it is recalculated many
+times when building multiple variants and compiling test suites. We should
+instead move this to a cache that is shared across all tasks for a build,
+and kept in memory across builds.
 
-Gradle should provide some mechanism that allows an incremental task to be implemented.
+## Story: Inline the data from the file hash cache into the task history cache
 
-## Plugin author implements a task that can accurately describe its output files
+Change `DefaultFileCollectionSnapshotter` to store (length, last-modified, hash)
+in the `FileCollectionSnapshot` implementation it creates. This is referenced by
+the task history cache.
 
-For some tasks, the exact output files are not known until after the task has completed. For these tasks, Gradle scans the output directories
-both before and after task execution and determines the output files based on the differences. This has a couple of drawbacks:
+When deciding whether something has changed, iterate over the elements of the
+`FileCollectionSnapshot` and use the (length, last-modified, hash) from the
+snapshot. Do not fetch this information from the file hash cache. If something
+has changed, hash it, and add the (length, last-modified, hash) tuple to the
+file hash cache. Also make a copy of the snapshot and update it with this new
+entry. This copy will be used as the new snapshot in the task history.
 
-- It's potentially quite slow, and often the task implementation can determine the output files more cheaply.
-- It's not very accurate if the task does any kind of up-to-date checking itself or if it changes file timestamps.
-
-The set of output files is currently used for:
-
-- Detecting changes in the outputs when determining whether the task is up-to-date or not.
-- Removing stale output files. Currently, this is something that a task must implement itself. More on this below.
-
-An example of such a task is the Java compilation task. It uses the Java compiler API to perform the compilation. This API can be queried to
-determine the output files that will be generated. The Java compilation task could make this available to Gradle, rather than
-requiring two scans of the output directory to calculate the output files (one scan will still be necessary to check for changed
-output files).
-
-Gradle should provide some mechanism that allows a task to notify Gradle of its actual output files during task execution. We
-should also investigate better mechanisms for detecting the output files of a task (eg native file change notifications).
-
-## Plugin author implements a task that removes stale output files
-
-For most tasks that produce output files, stale output files from previous executions of the task should be removed when the task is executed.
-For example, old class files should be removed when the source file is renamed. Old test result files should be removed when the tests
-no longer exist. And so on.
-
-Accurate handling of stale output files makes running `clean` much less useful.
-
-For a task with `@SkipWhenEmpty` applied to its inputs, all output files should be removed when the task has no inputs.
-
-Gradle should provide some simple mechanism to declare that stale outputs for a given task (type) be removed.
-
-## Simplify the process of writing task implementations
-
-Currently, the task implementation classpath is not treated as an input of the task. This means that changing the task implementation
-does not trigger task execution, which in turn makes developing the task implementation awkward.
-
-Gradle should invalidate a task's outputs when its implementation changes.
-
-## Fix up-to-date issues on copy tasks
-
-## Plugin author implements a task that produces outputs other than files
-
-## Plugin author implements a task that uses inputs other than files
-
-# Implementation plan
-
-## Story: Plugin author uses changes to input files to implement incremental task
-
-Incremental input file changes will be provided via an optional parameter on the TaskAction method for a task. The TaskExecutionContext will provide access to the set of changed input files,
-as well as a flag to indicate if incremental execution is possible.
-If incremental execution is not possible, then the task action will be executed with a rebuild context, where every input file is regarded as 'out-of-date'.
-
-Incremental execution is not possible when:
-- Task class has changed since previous execution
-- One or more of the input properties have changed since last execution
-- Output files have changed or been removed since last execution
-- No information available about a previous execution
-- Task has no declared outputs
-- Task.upToDate() is false
-- Gradle build executed with '--rerun-tasks'
-
-        class IncrementalSync extends DefaultTask {
-            @InputFiles
-            def FileCollection src
-
-            @OutputDirectory
-            def File destination
-
-            @TaskAction
-            void execute(IncrementalTaskInputs inputs) {
-                if (!inputs.incremental) {
-                    FileUtils.forceDelete(destination)
-                }
-                inputs.outOfDate({ change ->
-                    FileUtils.copyFile(change.file, targetFile(change.file))
-                } as Action)
-                
-                inputs.removed({ change ->
-                    FileUtils.forceDelete(targetFile(change.file))
-                } as Action)
-            }
-
-            def targetFile(def inputFile) {
-                new File(destination, change.file.name)
-            }
-        }
+What this means is that file hash cache is used only for new and modified files,
+which means there’s no point caching these entries in-memory (except perhaps for
+the duration of a build). For unmodified files, there’s never a cache miss. When
+nothing has changed for a snapshot, we also don’t need to hold a lock on the
+cache, which means less work and better concurrency when most snapshots are
+unmodified.
 
 ### Test coverage
 
-1. Incremental task action is executed with rebuild context when run for the first time
-2. Incremental task action is skipped when run with no changes since last execution
-3. Incremental task is informed of 'out-of-date' files when run with:
-    - Single added input file
-    - Single modified input file
-    - Single removed input file
-    - All input files removed
-4. Incremental task is informed of 'out-of-date' files when:
-    - Task has no declared input properties
-    - Task has no declared outputs
-5. Incremental task action is executed with every file 'out-of-date' when:
-    - Input property value has changed since previous execution
-    - Task class has changed since previous execution
-    - Output directory changed since previous execution
-    - Output file has changed since previous execution
-    - Single output file removed since previous execution
-    - All output files removed since previous execution
-    - Task.upToDate() is false
-    - Gradle build executed with '--rerun-tasks'
-6. Incremental task action is informed of all files changed since last successful execution
-7. Sad-day cases
-    - Incremental task has input files declared
-    - Incremental task action throws exception
+TBD
 
-### Questions
+## Story: Author specifies all files to include in source directory
 
-Handle multiple actions added via multiple calls to outOfDate() and removed()?
-Provide a simpler API that separates outOfDate() and removed() processing temporally?
+Currently, all source sets consist of a collection of root directories and a set of
+include/exclude patterns. Since we do not distinguish between patterns that have a
+single match (path/to/foo.c) and a glob (**/*.c), we must always scan all root
+directory paths and check all include and exclude patterns.  It's common for some
+projects to have an exhaustive list of all source files and no globbing.  In those
+cases, we could avoid directory walking and pattern matching.
 
-## Task implementation supports incremental execution for some types of input files
+### DSL
 
-A task may take as input serveral different collections of input files. This story reworks the incremental task API to allow input file changes
-to be delivered per-input file collection. It must be possible for a task to declare which of its input file collections it supports
-incremental execution for. A change in any other input file collection should trigger a rebuild execution of the task:
+Introduces a method `source(String, Closure<PatternFilterable-like>)` to `LanguageSourceSet`:
 
-- A file moves from one collection to another.
-- A file is added to a second collection.
-- A file is removed from some but not all collections.
+    model {
+        components {
+            lib(NativeLibrarySpec) {
+                sources {
+                    cpp {
+                        source("src/lib/cpp") // 1. no configuration, assume default pattern for source set
+                        source("src/lib/cpp") {
+                            // 2. only include patterns
+                            include '**/*.cpp', '**/*.c++', '**/*.C'
+                        }
+                        source("src/lib/cpp") {
+                            // 3. mix of explicit files and patterns
+                            include 'foo/bar.cpp'
+                            include 'baz/**/*.cpp'
+                            exclude '**/*.h'
+                            exclude 'baz/fubar.cpp'
+                        }
+                        source("src/lib/cpp") {
+                            // 4. only explicit list of files
+                            include 'foo/bar.cpp'
+                            include 'baz/baz.cpp'
+                        }
+                        source {
+                            // 5. existing API
+                            srcDirs 'src/lib/cpp'
+                            include 'foo/bar.cpp', 'baz/**/*.cpp'
+                            exclude '**/*.h', 'baz/fubar.cpp'
+                        }
+                    }
+                }
+            }
+        }
+    }
 
-## C++ compilation is incremental when a C++ source file changes
+1. turns into a file collection with 'src/lib/cpp' as a root dir and some default set of patterns
+1. turns into the same thing as #1 with a different set of patterns
+1. turns into a union of file collections:
+    - file collection with just "foo/bar.cpp" (no scanning needed)
+    - file collection root dir 'src/lib/cpp' with include pattern 'baz/**/*.cpp' and exclude pattern '**/*.h'
+    - file collection of excluded files 'baz/fubar.cpp' (no scanning needed)
+    - union = (a+b)-c
+1. is the fastest and turns into a file collection with just a set of files. (no scanning needed)
+1. is what we have today.  I think the migration would be
+    - Introduce new syntax (release X)
+    - Deprecate and warn that old syntax is going away -- part of the warning might be a generated "this is what it would look like" message
+    - Remove old API (release X+?), but keep source(Closure) around a bit longer to point people back to the migration path.  We wouldn't honor configuration done with source(Closure) anymore.
+1. Figuring out if an include/exclude pattern is really a file would be just checking for '*' in the pattern.
 
-Change the `CppCompile` task to be incremental wrt source file changes:
-    - When a source file is added, compile only that source file.
-    - When a source file is changed, compile only that source file.
-    - When a source file is removed, remove the object file for that source file.
-    - When a header file is changed in some way, recompile all source files.
+### Things to consider:
 
-## GRADLE-918: Document task input and output annotations
+- What do the defaults look like and how do they mix with this? e.g., how do I add exclusions without duplicating the default path?
 
-## GRADLE-2936: Invalidate task outputs when task implementation changes
 
-Add to the task history a hash of the task implementation, and rebuild the task's outputs when this changes.
+    model {
+        components {
+            lib(NativeLibrarySpec) {
+                cpp {
+                    source("src/lib/cpp") {
+                        exclude 'fubar.cpp'
+                    }
+                    // maybe repurpose old syntax to mean "exclude/include patterns for default"?
+                    source {
+                        exclude 'fubar.cpp'
+                    }
+                }
+            }
+        }
+    }
 
-- Add a mechanism to determine a hash given a classpath. Probably also add some persistent caching for this.
-  This mechanism should be reusable, to allow us to cache the result of scanning a classpath for annotated classes,
-  such as plugin-level services.
-- The hash of a class is the hash of its ClassLoader's classpath.
-- The hash of a task is the combination of the hash of the task's implementation class plus the hash of
-  the implementation class of each task action attached to the task.
-
-## GRADLE-2115: Handle `is` property accessors for boolean properties marked with `@Input`
-
-## GRADLE-1646: Copy tasks do not consider filter/expansion properties in up-to-date checks
-
-- Also GRADLE-2710
-
-## GRADLE-1276: processResources task considered up-to-date although its spec has changed
-
-## GRADLE-1814: Uptodate check fails when changing property includeEmptyDirs of Copy task
-
-## GRADLE-1298: Change in filtered resource not picked up by archive tasks
-
-## GRADLE-2082: Validate that input and output annotation are attached to property with valid type
-
-## Change type decoration so that incremental API objects are not extensible
-
-Allow type decoration to distinguish between domain objects and API objects.  API objects should not be
-decorated with `DynamicObjectAware`, `IConventionAware` or `ExtensionAware` or any of the asssociated
-state.
-
-## Improve accuracy of output file detection
-
-Change output file detection to use a change in file last modified time to detect that an output file has changed. Remove `OutputFilesSnapshotter`.
-
-## Story: Java compile task specifies its output files
-
-A task action will be able to use an API to notify Gradle of the output files it produces. For task implementations
-that do not use this API, Gradle will scan the output directories before and after task execution to infer the task
-outputs, as it does now.
-
-- Change the Java and Groovy compile task types to use this.
-- Change the Copy and Sync task types to use this.
-
-TBD - the API, which needs to work for both 'build everything' task execution (which includes task implementations that
-are not incremental aware) and incremental task execution.
-
-TBD - Need to have a solution for Java and Groovy compile tasks with `useAnt=true`
-
-## Story: Plugin author implements task that cleans up stale output files
-
-A task implementation will be able to use an API or a declarative element to request that stale output files should
-be removed.
-
-- Change the Java and Groovy compile task types to use this.
-- Change the ProcessResources and Sync task types to use this, possibly remove the ProcessResources type.
-- When a `@SkipWhenEmpty` input is empty, remove all output files from a previous execution.
-
-TBD - The API.
-
-## Story: Remove stale classes when compile task history is not known
-
-TBD - The stale outputs mechanism needs to handle the case where:
-
-- multiple tasks generate their outputs into a given output directory
-- some files exist in this output directory
-- task history is not available for one or more of the tasks
-
-TBD - The solution must handle the case where output files are generated into a directory that also contains
-non-generated files, so that simply removing the output directory is not really a solution.
-
-In particular, this story must solve the case where a classes directory is built from Java and Groovy source and static resources,
-but the task history is not available because an upgraded version of Gradle is being used.
-
-Potential solutions:
-
-- When a task in the task graph has no history and one of its output directories already exists and is not empty, then automatically
-  schedule a `clean` task for the project.
-- As above, but notify the user that they should really do a clean build first.
-- Handle this at the binary level, rather than the task level. For example, the `classes` task might remove unclaimed files (ie not known
-  to be built by any task) from the classes directory. Or perhaps when a task that contributes to the classes directory is scheduled to
-  run and no history is available for that task, then remove the classes directory and schedule a `classes` task to run.
-
-## Story: Reporting tasks are incremental wrt the settings of enabled reports only
-
-- Allow @Nested to be applied to a property that returns a collection.
-- Change TaskReportContainer to return a property that contains only the enabled reports.
-- Mark the report subclasses with the appropriate annotations.
-- Remove the existing properties on TaskReportContainer and FindBugsReportsImpl.
-
-### Test cases
-
-- Task is considered up-to-date when the setting of a disabled report is changed.
-- Task is considered out-of-date when a setting on an enabled report is changed.
-- Task is considered out-of-date when the set of enabled reports changes.
-- Task validation is applied to the settings of enabled reports.
-
-## Story: Copy task is incremental wrt its input files
-
-## Story: Plugin author uses changes to output files to implement incremental task
+## Story: Reduce number of directory scans in up-to-date checks
 
 TBD
 
-# Open issues
+## Story: Reduce the in-memory size of the task history cache
 
-- Some tasks may need to know about changed output files.
-- Look at making task history available across Gradle versions.
+1. Discard history that will never be used, eg for tasks that no longer exist,
+or that is unlikely to be used, eg for tasks in builds other than the current.
+2. Keep a hash of the file snapshots in memory rather than the file snapshots
+themselves. It’s only when we need to know exactly which files have changed that
+we would need to load up the snapshot.
+3. Do something similar for the task properties as well.
+4. Reduce the cost of a cache miss, by improving the efficiency of serialisation
+to the file system, and reducing the cache size.
+5. Reduce the cost of a cache miss, by spooling to an efficient transient second
+level cache, and reducing the cache size.
+
+## Open Issues
+
+- Check behavior of Prebuilt Libraries with large number of headers (https://discuss.gradle.org/t/native-performance-issue-with-no-op-builds-with-boost-as-a-dependency)
+- See incremental-build-old.md for other ideas and specific issues.
+- Profiler support: Skip warm-up or have explicit opt-in for warm up profiling?
+  - Conditionally enabling the profiler in the code by using Yourkit API.
+- Profiler support: For cross-version tests, skip all versions except the current?
+- Profiler support: Do we care about conditionally profiling the CLI and daemon processes (such that the profiling options should be configurable for each)?
+
+## Avoid unnecessary Ant default excludes in software model source sets
+
+- Add internal support for `DefaultSourceDirectorySet`-like class for use with `LanguageSourceSet`.  It would not use the default Ant exclude patterns.
+- We should try to leverage the existing PatternSet caching where that makes sense.
+
+## Story: Allow a task to register inputs "discovered" during task execution
+
+This story adds a way for a task to register additional inputs once execution has started.  At the end of execution, the discovered inputs are recorded in the task's execution history.
+
+    void perform(IncrementalTaskInputs inputs) {
+      getInputs().getFiles.each { source ->
+        File discoveredInput = complicatedAnalysis(source)
+        inputs.newInput(discoveredInput)
+      }
+      if (inputs.incremental) {
+        inputs.outOfDate {
+          // do stuff
+        }
+      }
+    }
+
+An initial implementation of "discovered inputs" was put in place to improve performance of native incremental compile. Extracted header files are registered as discovered inputs. This is an internal feature of `IncrementalTaskInputs` and is only used by the `IncrementalNativeCompiler`. To make this a public feature that build authors can use to add their own discovered inputs, we need to make this feature more friendly.
+
+### Test coverage
+
+- Discovered inputs must be Files (not directories).
+- On the first build, no discovered inputs are known, so discovered inputs are not needed for up-to-date checks.
+- On the second build, discovered inputs from previous build for a task are checked for up-to-date-ness.
+- When a discovered input is modified, the task is out of date on the next build.
+- When a discovered input is deleted, the task is out of date on the next build.
+- The set of discovered inputs after the task executes represents the inputs discovered for that execution, so if on build#1 discovered inputs are A, B, C and on build#2 discovered inputs are D, E, F.  Discovered inputs after #2 should be D, E, F (not a combination).
+- A task that is up-to-date should not lose its discovered inputs. Following an up-to-date build, a change in a discovered inputs should cause a task to be out of date.  i.e., A task that discovers inputs A, B, C in build#1, is up-to-date in build #2, should still have discovered inputs A, B, C in build#3.
+
+### Open Issues
+
+- When discovered inputs changed, without knowing which source files contributed to the discovered inputs, we should mark the task inputs as incremental=false and treat it like a rebuild.  We don't do this because `IncrementalNativeCompiler` doesn't handle this case.
+- When discovering inputs, we should make sure that all source files are visited each time or provide a way to incrementally discover inputs.
+- We may want to revisit the API to better model the relationship between a particular source file input and it's discovered inputs.
+    - Finalize API (should it remain on IncrementalTaskInputs or move somewhere else).
+- We should provide documentation/samples for using discovered inputs.
+- Any change to discovered inputs should cause all inputs to be out-of-date -- currently, a task's IncrementalTaskInputs are still marked as incremental when discovered inputs change.  Incremental native compiler relies on `incremental` flag to do any incremental builds.
+    - If task has inputs [A,B,C]. If only A changes, IncrementalTaskInputs will only report A as changed and incremental=true.  The task may do a "incremental execution".
+    - If task has input property foo.  If foo changes, IncrementalTaskInputs will have incremental=false and the task should do a "full execution".
+    - If a task has discovered inputs [X,Y,Z], if any discovered input changes, IncrementalTaskInputs will report _no_ files as changed and incremental=true (this is partially wrong).
+    - If we change discovered inputs to be more like regular inputs, we need to decide on the behavior of the set of files changed (as seen by `outOfDate`) and incremental=true or false.
+    - If we make the task non-incremental (incremental=false), IncrementalNativeCompiler needs to handle this by always doing a scan of all files and incremental build (this pushes the hard work down into the task that wants to use discovered inputs).
+    - If we make the task incremental (incremental=true), do we also include discovered inputs in the `outOfDate` list? IncrementalNativeCompiler ignores this list right now.
+- Discovered inputs do not work with continuous build.
+- The previous discovered files snapshot can be thrown away as soon as we know we'll be executing.
+- It would be nice to perform discovery incrementally.
+- Eventually be pretty much anything that you can use as a declared input for a task (including non-file properties and objects) should be able to be treated as "discovered inputs".
+
+
+## Background information about the in-memory caches
+
+### Task History related caches
+
+File path Strings are duplicated in memory in different in-memory caches. The different in-memory caches in Gradle are:
+  - [`fileSnapshots` used in `CacheBackedFileSnapshotRepository`](https://github.com/gradle/gradle/blob/b96e5802f277872b3484947ce9970180b139563a/subprojects/core/src/main/groovy/org/gradle/api/internal/changedetection/state/CacheBackedFileSnapshotRepository.java#L29)
+    - key is Long id
+    - value is `FileCollectionSnapshot`, serialized with `DefaultFileSnapshotterSerializer`
+  - [`taskArtifacts` used in `CacheBackedTaskHistoryRepository`](https://github.com/gradle/gradle/blob/b96e5802f277872b3484947ce9970180b139563a/subprojects/core/src/main/groovy/org/gradle/api/internal/changedetection/state/CacheBackedTaskHistoryRepository.java#L37)
+    - key is String, a task path
+    - value is `CacheBackedTaskHistoryRepository.TaskHistory`, serialized with `CacheBackedTaskHistoryRepository.TaskHistorySerializer`
+  - [`outputFileStates` used in `OutputFilesCollectionSnapshotter`](https://github.com/gradle/gradle/blob/b96e5802f277872b3484947ce9970180b139563a/subprojects/core/src/main/groovy/org/gradle/api/internal/changedetection/state/OutputFilesCollectionSnapshotter.java#L54)
+    - key is String, a output directory path
+    - value is Long, a random id
+  - [`fileHashes` used in `CachingFileSnapshotter`](https://github.com/gradle/gradle/blob/b96e5802f277872b3484947ce9970180b139563a/subprojects/core/src/main/groovy/org/gradle/api/internal/changedetection/state/CachingFileSnapshotter.java#L35)
+    - key is String, a file path
+    - value is `CachingFileSnapshotter.FileInfo`, serialized with `CachingFileSnapshotter.FileInfoSerializer`
+  - [`compilationState` in nativeplatform's `DefaultCompilationStateCacheFactory`](https://github.com/gradle/gradle/blob/master/subprojects/language-native/src/main/java/org/gradle/language/nativeplatform/internal/incremental/DefaultCompilationStateCacheFactory.java#L28)
+    - key is String, a task path
+    - value is `org.gradle.language.nativeplatform.internal.incremental.CompilationState`, serialized with `CompilationStateSerializer`
+
+The in-memory caches are a decorator for the underlying persistent cache. In-memory cache decorators are created in InMemoryTaskArtifactCache and live as part of that instance which is in the `GlobalScopeServices`. Persistent cache instances are typically part of the [`TaskExecutionServices`](https://github.com/gradle/gradle/blob/ef18b81c9ee03cf58a49e69a3c6f5abb4557d8f7/subprojects/core/src/main/groovy/org/gradle/internal/service/scopes/TaskExecutionServices.java#L73-L81) which are in `GradleScopeServices` (instances live for the duration of a single build execution). In-memory cache decorators are only used in the Gradle daemon process.
+
+### Relationship of `fileSnapshots` and `taskArtifacts` caches
+
+The `taskArtifacts` cache contains `TaskHistory` entries. Each `TaskHistory` can contain multiple task executions (`CacheBackedTaskHistoryRepository.LazyTaskExecution`). Each `LazyTaskExecution` contains it's input and output filesnapshots (`FileCollectionSnapshot`).
+Input and output instances are lazily loaded from the `fileSnapshots` cache when the `TaskHistory` instance gets loaded in an incremental build.
+
+The life-time of the `TaskHistory` instance can be seen in the
+[`SkipUpToDateTaskExecuter.execute`](https://github.com/gradle/gradle/blob/3a0cfd6ac94eb9db4c7884c46ef4f9e973dca114/subprojects/core/src/main/groovy/org/gradle/api/internal/tasks/execution/SkipUpToDateTaskExecuter.java#L66) method. The in-memory `TaskHistory` instance is persisted in the call to it's `update` method. This call originates from the `TaskArtifactState.afterTask` call in the `SkipUpToDateTaskExecuter.execute` method.
+
+When the `TaskHistory` gets persisted, it adds the current task execution to the list of executions and limits the number of executions to 3 by removing any additional task executions. When the task execution (`LazyTaskExecution`) gets persisted, the input and output file snapshots get persisted in the `filesnapshots` cache. This serves at least 2 purposes: the filesnapshot don't have to be loaded when the `TaskHistory` is loaded. It also prevents updating the input and output filesnapshots to the persistent storage when the `TaskHistory` instance gets updated. When the `TaskHistory` instance gets updated, all data gets re-serialized to disk.
+
+### Other caches
+
+- `HashClassPathSnapshotter` uses an unbounded cache instantiated in [`GlobalScopeServices`](https://github.com/gradle/gradle/blob/56404fa2cd7c466d7a5e19e8920906beffa9f919/subprojects/core/src/main/groovy/org/gradle/internal/service/scopes/GlobalScopeServices.java#L211-L212)

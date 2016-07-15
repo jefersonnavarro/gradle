@@ -22,6 +22,8 @@ import org.gradle.nativeplatform.fixtures.app.CppCompilerDetectingTestApp
 import org.gradle.nativeplatform.fixtures.app.CppHelloWorldApp
 import org.gradle.nativeplatform.fixtures.app.HelloWorldApp
 
+import static org.gradle.util.Matchers.containsText
+
 class CppLanguageIntegrationTest extends AbstractNativeLanguageIntegrationTest {
 
     HelloWorldApp helloWorldApp = new CppHelloWorldApp()
@@ -46,7 +48,8 @@ model {
         expect:
         fails "mainExecutable"
         failure.assertHasDescription("Execution failed for task ':compileMainExecutableMainCpp'.");
-        failure.assertHasCause("A build operation failed; see the error output for details.")
+        failure.assertHasCause("A build operation failed.")
+        failure.assertThatCause(containsText("C++ compiler failed while compiling broken.cpp"))
     }
 
     def "sources are compiled with C++ compiler"() {
@@ -66,12 +69,12 @@ model {
 
         expect:
         succeeds "mainExecutable"
-        executable("build/binaries/mainExecutable/main").exec().out == app.expectedOutput(AbstractInstalledToolChainIntegrationSpec.toolChain)
+        executable("build/exe/main/main").exec().out == app.expectedOutput(AbstractInstalledToolChainIntegrationSpec.toolChain)
     }
 
     def "can manually define C++ source sets"() {
         given:
-        helloWorldApp.getLibraryHeader().writeToDir(file("src/shared"))
+        helloWorldApp.library.headerFiles.each { it.writeToDir(file("src/shared")) }
 
         file("src/main/cpp/main.cpp") << helloWorldApp.mainSource.content
         file("src/main/cpp2/hello.cpp") << helloWorldApp.librarySources[0].content
@@ -111,7 +114,7 @@ model {
         run "mainExecutable"
 
         then:
-        def mainExecutable = executable("build/binaries/mainExecutable/main")
+        def mainExecutable = executable("build/exe/main/main")
         mainExecutable.assertExists()
         mainExecutable.exec().out == helloWorldApp.englishOutput
     }

@@ -1,6 +1,9 @@
 /*
     This project contains various native operating system integration utilities.
 */
+
+sourceCompatibility = javaVersion.java9Compatible ? 1.6 : 1.5
+
 dependencies {
     compile project(':baseServices')
     compile libraries.commons_io
@@ -16,5 +19,5 @@ dependencies {
 }
 
 useTestFixtures()
+useTestFixtures(project: ":logging")
 useClassycle()
-

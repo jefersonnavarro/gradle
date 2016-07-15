@@ -19,17 +19,37 @@ import java.util.List;
 import java.util.Set;
 
 public interface ExecutionResult {
+    /**
+     * Stdout of the Gradle execution, normalized to use new-line char as line separator.
+     */
     String getOutput();
 
+    /**
+     * Stdout of the Gradle execution, normalized to use new-line char as line separator. Excludes warnings about deprecated or incubating features used to run the build.
+     *
+     * <ul>
+     *     <li>Removes warning about running on Java 6.</li>
+     *     <li>Removes warning about running using configure on demand or parallel execution.</li>
+     *     <li>Removes notice about starting the daemon.</li>
+     *     <li>Normalizes build time to 1 second.
+     * </ul>
+     */
+    String getNormalizedOutput();
+
+    /**
+     * Stderr of the Gradle execution, normalized to use new-line char as line separator.
+     */
     String getError();
 
     ExecutionResult assertOutputEquals(String expectedOutput, boolean ignoreExtraLines, boolean ignoreLineOrder);
+
+    ExecutionResult assertOutputContains(String expectedOutput);
 
     /**
      * Returns the tasks have been executed in order (includes tasks that were skipped). Note: ignores buildSrc tasks.
      */
     List<String> getExecutedTasks();
-    
+
     /**
      * Asserts that exactly the given set of tasks have been executed in the given order. Note: ignores buildSrc tasks.
      */
@@ -39,7 +59,7 @@ public interface ExecutionResult {
      * Returns the tasks that were skipped, in an undefined order. Note: ignores buildSrc tasks.
      */
     Set<String> getSkippedTasks();
-    
+
     /**
      * Asserts that exactly the given set of tasks have been skipped. Note: ignores buildSrc tasks.
      */

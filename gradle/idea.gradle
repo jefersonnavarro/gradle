@@ -1,15 +1,49 @@
 import org.gradle.api.internal.artifacts.dependencies.DefaultSelfResolvingDependency
 
 allprojects {
-	apply plugin: "idea"
-}
+    apply plugin: "idea"
 
-subprojects {
-    plugins.withType(JavaPlugin) {
-        idea {
-            module {
-                scopes.RUNTIME.plus.add(configurations.detachedConfiguration(new DefaultSelfResolvingDependency(files { sourceSets.main.resources.srcDirs })))
-                scopes.TEST.plus.add(configurations.detachedConfiguration(new DefaultSelfResolvingDependency(files { sourceSets*.resources*.srcDirs })))
+    idea {
+        module {
+            // Force everything to Java 6, pending detangling some int test cycles or switching to project-per-source-set mapping
+            languageLevel = new org.gradle.plugins.ide.idea.model.IdeaLanguageLevel("1.6")
+            targetBytecodeVersion = JavaVersion.VERSION_1_6
+
+            iml {
+                whenMerged { module ->
+                    module.dependencies.removeAll {
+                        it instanceof org.gradle.plugins.ide.idea.model.ModuleLibrary &&
+                        it.classes.any {
+                            // remove all Gradle build output directories from all scopes
+                            it.url.contains('/build/classes/') ||
+                            it.url.contains('/build/resources/') ||
+                            // remove possible resource directories from all scopes
+                            // replaced by java-resource/java-test-resource
+                            it.url.contains('$MODULE_DIR$/src/') ||
+                            // keep for build/generated-resources/main/*-classpath.properties
+                            // required by DefaultModuleRegistry
+                            (it.url.contains('$MODULE_DIR$/build/') && !it.url.contains('generated-resources'))
+                        }
+                    }
+                    // remove all build directories from sourceFolders
+                    // f.e. buildInit module contains such a sourceFolder
+                    module.sourceFolders.removeAll {
+                        it.url.contains('$MODULE_DIR$/build/')
+                    }
+                }
+                withXml {
+                    def node = it.asNode()
+                    def content = node.component.find { it.'@name' == 'NewModuleRootManager' }.content[0]
+                    content.sourceFolder.each { sourceFolder ->
+                        // make resource directories a java-resource / java-test-resource type in Idea
+                        if(sourceFolder.@url?.endsWith('/resources')) {
+                            sourceFolder.attributes().with {
+                                boolean isTestSource = (remove('isTestSource') == 'true')
+                                put('type', isTestSource ? 'java-test-resource' : 'java-resource')
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -25,7 +59,6 @@ idea {
     project {
         wildcards += ['?*.gradle']
 
-        languageLevel = '1.6'
         vcs = 'Git'
         ipr {
             withXml { provider ->
@@ -52,15 +85,6 @@ idea {
                                 exclude.appendNode('directory', [url: "file://\$PROJECT_DIR\$/${rootProject.relativePath(packageFolder)}", includeSubdirectories: true])
                             }
                         }
-                    }
-                }
-                Collection sourceDirs = groovyProjects.collect { project -> project.sourceSets*.allSource*.srcDirs }.flatten()
-                sourceDirs.each { sourceFolder ->
-                    if (!javaVersion.java7) {
-                        excludeSource("jdk7", sourceFolder)
-                    }
-                    if (!javaVersion.java6Compatible) {
-                        excludeSource("jdk6", sourceFolder)
                     }
                 }
 
@@ -114,10 +138,11 @@ idea {
 
                 // Code formatting options
                 def codeFormatSettings = new XmlParser().parseText('''
-          <component name="CodeStyleSettingsManager">
+          <component name="ProjectCodeStyleSettingsManager">
             <option name="PER_PROJECT_SETTINGS">
               <value>
                 <option name="USE_SAME_INDENTS" value="true" />
+                <option name="CLASS_COUNT_TO_USE_IMPORT_ON_DEMAND" value="999" />
                 <option name="RIGHT_MARGIN" value="200" />
                 <option name="JD_ALIGN_PARAM_COMMENTS" value="false" />
                 <option name="JD_ALIGN_EXCEPTION_COMMENTS" value="false" />
@@ -130,86 +155,17 @@ idea {
                 <option name="DOWHILE_BRACE_FORCE" value="3" />
                 <option name="WHILE_BRACE_FORCE" value="3" />
                 <option name="FOR_BRACE_FORCE" value="3" />
-                <ADDITIONAL_INDENT_OPTIONS fileType="groovy">
-                  <option name="INDENT_SIZE" value="4" />
-                  <option name="CONTINUATION_INDENT_SIZE" value="8" />
-                  <option name="TAB_SIZE" value="4" />
-                  <option name="USE_TAB_CHARACTER" value="false" />
-                  <option name="SMART_TABS" value="false" />
-                  <option name="LABEL_INDENT_SIZE" value="0" />
-                  <option name="LABEL_INDENT_ABSOLUTE" value="false" />
-                  <option name="USE_RELATIVE_INDENTS" value="false" />
-                </ADDITIONAL_INDENT_OPTIONS>
-                <ADDITIONAL_INDENT_OPTIONS fileType="java">
-                  <option name="INDENT_SIZE" value="4" />
-                  <option name="CONTINUATION_INDENT_SIZE" value="8" />
-                  <option name="TAB_SIZE" value="4" />
-                  <option name="USE_TAB_CHARACTER" value="false" />
-                  <option name="SMART_TABS" value="false" />
-                  <option name="LABEL_INDENT_SIZE" value="0" />
-                  <option name="LABEL_INDENT_ABSOLUTE" value="false" />
-                  <option name="USE_RELATIVE_INDENTS" value="false" />
-                </ADDITIONAL_INDENT_OPTIONS>
-                <ADDITIONAL_INDENT_OPTIONS fileType="js">
-                  <option name="INDENT_SIZE" value="4" />
-                  <option name="CONTINUATION_INDENT_SIZE" value="8" />
-                  <option name="TAB_SIZE" value="4" />
-                  <option name="USE_TAB_CHARACTER" value="false" />
-                  <option name="SMART_TABS" value="false" />
-                  <option name="LABEL_INDENT_SIZE" value="0" />
-                  <option name="LABEL_INDENT_ABSOLUTE" value="false" />
-                  <option name="USE_RELATIVE_INDENTS" value="false" />
-                </ADDITIONAL_INDENT_OPTIONS>
-                <ADDITIONAL_INDENT_OPTIONS fileType="jsp">
-                  <option name="INDENT_SIZE" value="4" />
-                  <option name="CONTINUATION_INDENT_SIZE" value="8" />
-                  <option name="TAB_SIZE" value="4" />
-                  <option name="USE_TAB_CHARACTER" value="false" />
-                  <option name="SMART_TABS" value="false" />
-                  <option name="LABEL_INDENT_SIZE" value="0" />
-                  <option name="LABEL_INDENT_ABSOLUTE" value="false" />
-                  <option name="USE_RELATIVE_INDENTS" value="false" />
-                </ADDITIONAL_INDENT_OPTIONS>
-                <ADDITIONAL_INDENT_OPTIONS fileType="php">
-                  <option name="INDENT_SIZE" value="4" />
-                  <option name="CONTINUATION_INDENT_SIZE" value="8" />
-                  <option name="TAB_SIZE" value="4" />
-                  <option name="USE_TAB_CHARACTER" value="false" />
-                  <option name="SMART_TABS" value="false" />
-                  <option name="LABEL_INDENT_SIZE" value="0" />
-                  <option name="LABEL_INDENT_ABSOLUTE" value="false" />
-                  <option name="USE_RELATIVE_INDENTS" value="false" />
-                </ADDITIONAL_INDENT_OPTIONS>
-                <ADDITIONAL_INDENT_OPTIONS fileType="scala">
-                  <option name="INDENT_SIZE" value="2" />
-                  <option name="CONTINUATION_INDENT_SIZE" value="2" />
-                  <option name="TAB_SIZE" value="2" />
-                  <option name="USE_TAB_CHARACTER" value="false" />
-                  <option name="SMART_TABS" value="false" />
-                  <option name="LABEL_INDENT_SIZE" value="0" />
-                  <option name="LABEL_INDENT_ABSOLUTE" value="false" />
-                  <option name="USE_RELATIVE_INDENTS" value="false" />
-                </ADDITIONAL_INDENT_OPTIONS>
-                <ADDITIONAL_INDENT_OPTIONS fileType="sql">
-                  <option name="INDENT_SIZE" value="2" />
-                  <option name="CONTINUATION_INDENT_SIZE" value="8" />
-                  <option name="TAB_SIZE" value="4" />
-                  <option name="USE_TAB_CHARACTER" value="false" />
-                  <option name="SMART_TABS" value="false" />
-                  <option name="LABEL_INDENT_SIZE" value="0" />
-                  <option name="LABEL_INDENT_ABSOLUTE" value="false" />
-                  <option name="USE_RELATIVE_INDENTS" value="false" />
-                </ADDITIONAL_INDENT_OPTIONS>
-                <ADDITIONAL_INDENT_OPTIONS fileType="xml">
-                  <option name="INDENT_SIZE" value="4" />
-                  <option name="CONTINUATION_INDENT_SIZE" value="8" />
-                  <option name="TAB_SIZE" value="4" />
-                  <option name="USE_TAB_CHARACTER" value="false" />
-                  <option name="SMART_TABS" value="false" />
-                  <option name="LABEL_INDENT_SIZE" value="0" />
-                  <option name="LABEL_INDENT_ABSOLUTE" value="false" />
-                  <option name="USE_RELATIVE_INDENTS" value="false" />
-                </ADDITIONAL_INDENT_OPTIONS>
+                <codeStyleSettings language="JAVA">
+                  <option name="KEEP_CONTROL_STATEMENT_IN_ONE_LINE" value="false" />
+                  <option name="IF_BRACE_FORCE" value="3" />
+                  <option name="DOWHILE_BRACE_FORCE" value="3" />
+                  <option name="WHILE_BRACE_FORCE" value="3" />
+                  <option name="FOR_BRACE_FORCE" value="3" />
+                </codeStyleSettings>
+                <GroovyCodeStyleSettings>
+                  <option name="ALIGN_NAMED_ARGS_IN_MAP" value="false" />
+                  <option name="CLASS_COUNT_TO_USE_IMPORT_ON_DEMAND" value="999" />
+                </GroovyCodeStyleSettings>
               </value>
             </option>
             <option name="USE_PER_PROJECT_SETTINGS" value="true" />
@@ -225,6 +181,10 @@ idea {
                       <option name="heapSize" value="2000" />
                     </component>
                 '''))
+
+                node.append(new NodeBuilder().component(name: 'FrameworkDetectionExcludesConfiguration') {
+                  type(id: 'web')
+                })
             }
         }
     }
@@ -234,7 +194,7 @@ idea {
 
         node.append(new XmlParser().parseText('''
             <component name="CompilerWorkspaceConfiguration">
-              <option name="USE_COMPILE_SERVER" value="false" />
+              <option name="COMPILER_PROCESS_HEAP_SIZE" value="2048" />
             </component>
         '''))
 
@@ -249,12 +209,22 @@ idea {
         def defaultTestVmParams = [
                 "-Dorg.gradle.docs.releasenotes.source=${docsProject.releaseNotesMarkdown.source.singleFile}",
                 "-Dorg.gradle.docs.releasenotes.rendered=${new File(docsProject.releaseNotes.destinationDir, docsProject.releaseNotes.fileName)}",
-                "-DintegTest.gradleHomeDir=${intTestImage.destinationDir}",
+                "-DintegTest.gradleHomeDir=${rootProject.intTestImage.destinationDir.absolutePath}",
+                "-DintegTest.gradleUserHomeDir=${rootProject.file('intTestHomeDir').absolutePath}",
+                "-DintegTest.libsRepo=${rootProject.file('build/repo').absolutePath}",
+                "-Dorg.gradle.integtest.daemon.registry=${rootProject.file('build/daemon').absolutePath}",
+                "-DintegTest.distsDir=${rootProject.distsDir.absolutePath}",
+                "-DsmokeTest.gradleHomeDir=${rootProject.intTestImage.destinationDir.absolutePath}",
+                "-DsmokeTest.gradleUserHomeDir=${rootProject.file('intTestHomeDir').absolutePath}",
                 "-Dorg.gradle.integtest.executer=embedded",
+                "-Dorg.gradle.integtest.versions=latest",
                 "-ea",
-                "-XX:MaxPermSize=512m",
                 "-Xmx512m"
         ]
+
+        if (!javaVersion.java8Compatible) {
+            defaultTestVmParams += "-XX:MaxPermSize=512m"
+        }
 
         vmParameters.'@value' = defaultTestVmParams.collect { it.contains(" ") ? "\"$it\"" : it }.join(" ")
 
@@ -297,7 +267,7 @@ idea {
         def gradleRunners = [
                 "Quick Check (precommit)": "quickCheck --daemon",
                 "Regenerate IDEA metadata": "idea --daemon",
-                "Regenerate Int Test Image": "intTestImage --daemon"
+                "Regenerate Int Test Image": "prepareVersionsInfo intTestImage publishLocalArchives --daemon"
         ]
 
         def runnerClass = "org.gradle.testing.internal.util.GradlewRunner"
@@ -328,10 +298,23 @@ idea {
             listItems << "<item index='${listItems.size() + 1}' class='java.lang.String' itemvalue='Application.${runnerName}' />"
         }
 
+        // Add remote debugger configuration
+        runManagerConfig.append(new XmlParser().parseText("""
+            <configuration default="false" name="Remote debug port 5005" type="Remote" factoryName="Remote">
+              <option name="USE_SOCKET_TRANSPORT" value="true" />
+              <option name="SERVER_MODE" value="false" />
+              <option name="SHMEM_ADDRESS" value="javadebug" />
+              <option name="HOST" value="localhost" />
+              <option name="PORT" value="5005" />
+              <method />
+            </configuration>
+        """))
+        listItems << "<item index='${listItems.size() + 1}' class='java.lang.String' itemvalue='Remote.Remote debug port 5005' />"
+
         runManagerConfig.append(new XmlParser().parseText("""
             <list size='${listItems.size() + 1}'>
               <item index='0' class='java.lang.String' itemvalue='Application.Gradle' />
-              ${listItems}
+              ${listItems.join('\n')}
             </list>
         """))
     }

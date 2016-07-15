@@ -16,15 +16,18 @@
 package org.gradle.integtests.resolve
 
 import org.gradle.integtests.fixtures.AbstractIntegrationTest
+import org.gradle.integtests.fixtures.FluidDependenciesResolveRunner
 import org.gradle.integtests.fixtures.TestResources
 import org.gradle.test.fixtures.file.TestFile
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import org.junit.runner.RunWith
 import spock.lang.Issue
 
 import static org.hamcrest.Matchers.containsString
 
+@RunWith(FluidDependenciesResolveRunner)
 class ArtifactDependenciesIntegrationTest extends AbstractIntegrationTest {
     @Rule
     public final TestResources testResources = new TestResources(testDirectoryProvider)
@@ -176,10 +179,10 @@ project(':b') {
         repo.module('org', 'leaf3').publish()
         repo.module('org', 'leaf4').publish()
 
-        repo.module('org', 'middle1').dependsOn("leaf1", "leaf2").publish()
-        repo.module('org', 'middle2').dependsOn("leaf3", "leaf4").publish()
+        repo.module('org', 'middle1').dependsOnModules("leaf1", "leaf2").publish()
+        repo.module('org', 'middle2').dependsOnModules("leaf3", "leaf4").publish()
 
-        repo.module('org', 'top').dependsOn("middle1", "middle2").publish()
+        repo.module('org', 'top').dependsOnModules("middle1", "middle2").publish()
 
         testFile('build.gradle') << """
             repositories {
@@ -541,7 +544,7 @@ task test << {
 
         expect:
         def failure = inTestDirectory().runWithFailure()
-        failure.assertHasCause("No such property: modue")
+        failure.assertHasCause("Could not set unknown property 'modue' for object of type org.gradle.api.internal.artifacts.DefaultExcludeRule.")
     }
 
     @Test

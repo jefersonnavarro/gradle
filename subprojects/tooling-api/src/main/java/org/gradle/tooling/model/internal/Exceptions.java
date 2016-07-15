@@ -18,7 +18,7 @@ package org.gradle.tooling.model.internal;
 
 import org.gradle.tooling.UnknownModelException;
 import org.gradle.tooling.UnsupportedVersionException;
-import org.gradle.tooling.exceptions.UnsupportedOperationConfigurationException;
+import org.gradle.tooling.internal.consumer.Distribution;
 import org.gradle.tooling.internal.consumer.versioning.ModelMapping;
 import org.gradle.tooling.internal.protocol.InternalUnsupportedModelException;
 import org.gradle.tooling.model.UnsupportedMethodException;
@@ -41,14 +41,6 @@ public class Exceptions {
                 , method);
     }
 
-    public static UnsupportedOperationConfigurationException unsupportedOperationConfiguration(String operation, String targetVersion) {
-        return new UnsupportedOperationConfigurationException(String.format("Unsupported configuration: %s."
-                + "\nYou configured the LongRunningOperation (ModelBuilder or BuildLauncher) with an unsupported option."
-                + "\nThe version of Gradle are using (%s) does not support this configuration option."
-                + "\nTo resolve the problem you can change/upgrade the target version of Gradle."
-                , operation, targetVersion));
-    }
-
     public static UnknownModelException unsupportedModel(Class<?> modelType, String targetVersion) {
         ModelMapping modelMapping = new ModelMapping();
         String versionAdded = modelMapping.getVersionAdded(modelType);
@@ -65,8 +57,13 @@ public class Exceptions {
         return new UnknownModelException(String.format("No model of type '%s' is available in this build.", type.getSimpleName()), failure.getCause());
     }
 
+    public static UnsupportedVersionException unsupportedFeature(String feature, Distribution distro, String versionAdded) {
+        return new UnsupportedVersionException(String.format("The version of Gradle you are using (%s) does not support the %s. Support for this is available in Gradle %s and all later versions.",
+                distro.getDisplayName(), feature, versionAdded));
+    }
+
     public static UnsupportedVersionException unsupportedFeature(String feature, String targetVersion, String versionAdded) {
-        return new UnsupportedVersionException(String.format("The version of Gradle you are using (%s) does not support %s. Support for this was added in Gradle %s and is available in all later versions.",
+        return new UnsupportedVersionException(String.format("The version of Gradle you are using (%s) does not support the %s. Support for this is available in Gradle %s and all later versions.",
                 targetVersion, feature, versionAdded));
     }
 }

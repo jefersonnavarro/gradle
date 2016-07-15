@@ -15,14 +15,8 @@
  */
 package org.gradle.api.internal.artifacts.ivyservice;
 
-import org.apache.ivy.core.module.descriptor.DefaultModuleDescriptor;
-import org.apache.ivy.core.module.descriptor.DependencyDescriptor;
-import org.apache.ivy.core.module.id.ArtifactId;
 import org.apache.ivy.core.module.id.ModuleId;
 import org.apache.ivy.core.module.id.ModuleRevisionId;
-import org.gradle.api.artifacts.Dependency;
-import org.gradle.api.artifacts.Module;
-import org.gradle.api.artifacts.ModuleVersionIdentifier;
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier;
 import org.gradle.util.GUtil;
 
@@ -34,28 +28,12 @@ public class IvyUtil {
 
     private static final Object MODULE_ID_LOCK = new Object(); //see GRADLE-3027
 
-    public static ModuleRevisionId createModuleRevisionId(Module module) {
-        return createModuleRevisionId(module.getGroup(), module.getName(), module.getVersion());
-    }
-
-    public static ModuleRevisionId createModuleRevisionId(Dependency dependency) {
-        return createModuleRevisionId(dependency.getGroup(), dependency.getName(), dependency.getVersion());
-    }
-
     public static ModuleRevisionId createModuleRevisionId(String group, String name, String version) {
         return createModuleRevisionId(emptyStringIfNull(group), name, null, emptyStringIfNull(version), emptyMap());
     }
 
-    public static ModuleRevisionId createModuleRevisionId(ModuleVersionIdentifier id) {
-        return createModuleRevisionId(id.getGroup(), id.getName(), id.getVersion());
-    }
-
     public static ModuleRevisionId createModuleRevisionId(ModuleComponentIdentifier id) {
         return createModuleRevisionId(id.getGroup(), id.getModule(), id.getVersion());
-    }
-
-    public static ModuleRevisionId createModuleRevisionId(ModuleRevisionId revId, String version) {
-        return createModuleRevisionId(revId.getOrganisation(), revId.getName(), revId.getBranch(), version, revId.getQualifiedExtraAttributes());
     }
 
     private static String emptyStringIfNull(String value) {
@@ -76,15 +54,5 @@ public class IvyUtil {
         synchronized (MODULE_ID_LOCK) {
             return ModuleId.newInstance(org, name);
         }
-    }
-
-    public static ArtifactId createArtifactId(String org, String module, String name, String type, String ext) {
-        return new ArtifactId(createModuleId(org, module), name, type, ext);
-    }
-
-    public static DefaultModuleDescriptor createModuleDescriptor(DependencyDescriptor dependencyDescriptor) {
-        DefaultModuleDescriptor moduleDescriptor = DefaultModuleDescriptor.newDefaultInstance(dependencyDescriptor.getDependencyRevisionId(), dependencyDescriptor.getAllDependencyArtifacts());
-        moduleDescriptor.setStatus("integration");
-        return moduleDescriptor;
     }
 }

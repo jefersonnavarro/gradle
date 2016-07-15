@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 the original author or authors.
+ * Copyright 2015 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -16,71 +16,62 @@
 
 package org.gradle.model.internal.inspect;
 
-import net.jcip.annotations.ThreadSafe;
-import org.gradle.api.specs.Spec;
-import org.gradle.internal.BiAction;
+import org.gradle.internal.Cast;
 import org.gradle.model.internal.core.*;
 import org.gradle.model.internal.core.rule.describe.ModelRuleDescriptor;
 import org.gradle.model.internal.type.ModelType;
 
 import java.util.List;
 
-@ThreadSafe
 public class UnmanagedModelCreationRuleExtractor extends AbstractModelCreationRuleExtractor {
 
     @Override
-    public Spec<MethodRuleDefinition<?, ?>> getSpec() {
-        final Spec<MethodRuleDefinition<?, ?>> superSpec = super.getSpec();
-        return new Spec<MethodRuleDefinition<?, ?>>() {
-            public boolean isSatisfiedBy(MethodRuleDefinition<?, ?> element) {
-                return superSpec.isSatisfiedBy(element) && !element.getReturnType().equals(ModelType.of(Void.TYPE));
-            }
-        };
+    public boolean isSatisfiedBy(MethodRuleDefinition<?, ?> element) {
+        return super.isSatisfiedBy(element) && !isVoidMethod(element);
     }
 
-    public <R, S> ExtractedModelRule registration(MethodRuleDefinition<R, S> ruleDefinition) {
-        String modelName = determineModelName(ruleDefinition);
-
-        ModelType<R> returnType = ruleDefinition.getReturnType();
-        List<ModelReference<?>> references = ruleDefinition.getReferences();
-        ModelRuleDescriptor descriptor = ruleDefinition.getDescriptor();
-
-        BiAction<MutableModelNode, Inputs> transformer = new ModelRuleInvokerBackedTransformer<R>(returnType, ruleDefinition.getRuleInvoker(), descriptor, references);
-        ModelCreator modelCreator = ModelCreators.of(ModelReference.of(ModelPath.path(modelName), returnType), transformer)
-                .withProjection(new UnmanagedModelProjection<R>(returnType, true, true))
-                .descriptor(descriptor)
-                .inputs(references)
-                .build();
-
-        return new ExtractedModelCreator(modelCreator);
+    @Override
+    protected <R, S> ExtractedModelRule buildRule(ModelPath modelPath, MethodRuleDefinition<R, S> ruleDefinition) {
+        return new ExtractedUnmanagedCreationRule<R, S>(modelPath, ruleDefinition);
     }
 
+    @Override
     public String getDescription() {
         return String.format("%s and returning a model element", super.getDescription());
     }
 
-    private static class ModelRuleInvokerBackedTransformer<T> implements BiAction<MutableModelNode, Inputs> {
-
-        private final ModelType<T> type;
+    private static class UnmanagedElementCreationAction<T> implements MethodRuleAction {
         private final ModelRuleDescriptor descriptor;
-        private final ModelRuleInvoker<T> ruleInvoker;
-        private final List<ModelReference<?>> inputReferences;
+        private final ModelReference<?> subject;
+        private final ModelType<T> type;
+        private final List<ModelReference<?>> inputs;
 
-        private ModelRuleInvokerBackedTransformer(ModelType<T> type, ModelRuleInvoker<T> ruleInvoker, ModelRuleDescriptor descriptor, List<ModelReference<?>> inputReferences) {
-            this.type = type;
+        private UnmanagedElementCreationAction(ModelRuleDescriptor descriptor, ModelReference<?> subject, List<ModelReference<?>> inputs, ModelType<T> type) {
+            this.subject = subject;
+            this.inputs = inputs;
             this.descriptor = descriptor;
-            this.ruleInvoker = ruleInvoker;
-            this.inputReferences = inputReferences;
+            this.type = type;
         }
 
-        public void execute(MutableModelNode modelNode, Inputs inputs) {
-            T instance;
+        @Override
+        public ModelReference<?> getSubject() {
+            return subject;
+        }
+
+        @Override
+        public List<? extends ModelReference<?>> getInputs() {
+            return inputs;
+        }
+
+        @Override
+        public void execute(ModelRuleInvoker<?> ruleInvoker, MutableModelNode modelNode, List<ModelView<?>> inputs) {
+            Object instance;
             if (inputs.size() == 0) {
                 instance = ruleInvoker.invoke();
             } else {
                 Object[] args = new Object[inputs.size()];
                 for (int i = 0; i < inputs.size(); i++) {
-                    args[i] = inputs.get(i, inputReferences.get(i).getType()).getInstance();
+                    args[i] = inputs.get(i).getInstance();
                 }
 
                 instance = ruleInvoker.invoke(args);
@@ -88,7 +79,27 @@ public class UnmanagedModelCreationRuleExtractor extends AbstractModelCreationRu
             if (instance == null) {
                 throw new ModelRuleExecutionException(descriptor, "rule returned null");
             }
-            modelNode.setPrivateData(type, instance);
+            T value = Cast.uncheckedCast(instance);
+            modelNode.setPrivateData(type, value);
+        }
+    }
+
+    private static class ExtractedUnmanagedCreationRule<R, S> extends ExtractedCreationRule<R, S> {
+        public ExtractedUnmanagedCreationRule(ModelPath modelPath, MethodRuleDefinition<R, S> ruleDefinition) {
+            super(modelPath, ruleDefinition);
+        }
+
+        @Override
+        protected void buildRegistration(MethodModelRuleApplicationContext context, ModelRegistrations.Builder registration) {
+            MethodRuleDefinition<R, S> ruleDefinition = getRuleDefinition();
+            ModelType<R> modelType = ruleDefinition.getReturnType();
+            List<ModelReference<?>> inputs = ruleDefinition.getReferences();
+            ModelRuleDescriptor descriptor = ruleDefinition.getDescriptor();
+            ModelReference<Object> subjectReference = ModelReference.of(modelPath);
+            registration.action(ModelActionRole.Create,
+                    context.contextualize(new UnmanagedElementCreationAction<R>(descriptor, subjectReference, inputs, modelType)));
+            registration.withProjection(new UnmanagedModelProjection<R>(modelType));
+            registration.withProjection(new ModelElementProjection(modelType));
         }
     }
 }

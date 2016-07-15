@@ -16,116 +16,40 @@
 
 package org.gradle.platform.base.component;
 
-import org.gradle.api.Action;
-import org.gradle.api.DomainObjectSet;
 import org.gradle.api.Incubating;
-import org.gradle.api.PolymorphicDomainObjectContainer;
-import org.gradle.api.internal.DefaultDomainObjectSet;
-import org.gradle.internal.reflect.Instantiator;
-import org.gradle.internal.reflect.ObjectInstantiationException;
-import org.gradle.language.base.FunctionalSourceSet;
 import org.gradle.language.base.LanguageSourceSet;
-import org.gradle.platform.base.*;
-import org.gradle.platform.base.internal.ComponentSpecInternal;
-
-import java.util.Collections;
-import java.util.Set;
+import org.gradle.model.ModelMap;
+import org.gradle.model.internal.core.ModelMaps;
+import org.gradle.model.internal.core.MutableModelNode;
+import org.gradle.model.internal.type.ModelType;
+import org.gradle.platform.base.BinarySpec;
+import org.gradle.platform.base.GeneralComponentSpec;
+import org.gradle.platform.base.component.internal.DefaultComponentSpec;
 
 /**
- * Base class for custom component implementations.
- * A custom implementation of {@link ComponentSpec} must extend this type.
+ * Base class that may be used for custom {@link GeneralComponentSpec} implementations. However, it is generally better to use an
+ * interface annotated with {@link org.gradle.model.Managed} and not use an implementation class at all.
  */
 @Incubating
-public abstract class BaseComponentSpec implements ComponentSpecInternal {
-    private static ThreadLocal<ComponentInfo> nextComponentInfo = new ThreadLocal<ComponentInfo>();
-    private final FunctionalSourceSet mainSourceSet;
+public class BaseComponentSpec extends DefaultComponentSpec implements GeneralComponentSpec {
+    private static final ModelType<BinarySpec> BINARY_SPEC_MODEL_TYPE = ModelType.of(BinarySpec.class);
+    private static final ModelType<LanguageSourceSet> LANGUAGE_SOURCE_SET_MODEL_TYPE = ModelType.of(LanguageSourceSet.class);
+    private final MutableModelNode binaries;
+    private final MutableModelNode sources;
 
-    private final ComponentSpecIdentifier identifier;
-    private final String typeName;
-    private final DomainObjectSet<BinarySpec> binaries = new DefaultDomainObjectSet<BinarySpec>(BinarySpec.class);
-
-    public static <T extends BaseComponentSpec> T create(Class<T> type, ComponentSpecIdentifier identifier, FunctionalSourceSet mainSourceSet, Instantiator instantiator) {
-        if (type.equals(BaseComponentSpec.class)) {
-            throw new ModelInstantiationException("Cannot create instance of abstract class BaseComponentSpec.");
-        }
-        nextComponentInfo.set(new ComponentInfo(identifier, type.getSimpleName(), mainSourceSet));
-        try {
-            try {
-                return instantiator.newInstance(type);
-            } catch (ObjectInstantiationException e) {
-                throw new ModelInstantiationException(String.format("Could not create component of type %s", type.getSimpleName()), e.getCause());
-            }
-        } finally {
-            nextComponentInfo.set(null);
-        }
-    }
-
-    protected BaseComponentSpec() {
-        this(nextComponentInfo.get());
-    }
-
-    private BaseComponentSpec(ComponentInfo info) {
-        if (info == null) {
-            throw new ModelInstantiationException("Direct instantiation of a BaseComponentSpec is not permitted. Use a ComponentTypeBuilder instead.");
-        }
-
-        this.identifier = info.componentIdentifier;
-        this.typeName = info.typeName;
-        this.mainSourceSet = info.sourceSets;
-    }
-
-    public String getName() {
-        return identifier.getName();
-    }
-
-    public String getProjectPath() {
-        return identifier.getProjectPath();
-    }
-
-    protected String getTypeName() {
-        return typeName;
-    }
-
-    public String getDisplayName() {
-        return String.format("%s '%s'", getTypeName(), getName());
+    public BaseComponentSpec() {
+        MutableModelNode modelNode = getInfo().modelNode;
+        binaries = ModelMaps.addModelMapNode(modelNode, BINARY_SPEC_MODEL_TYPE, "binaries");
+        sources = ModelMaps.addModelMapNode(modelNode, LANGUAGE_SOURCE_SET_MODEL_TYPE, "sources");
     }
 
     @Override
-    public String toString() {
-        return getDisplayName();
+    public ModelMap<LanguageSourceSet> getSources() {
+        return ModelMaps.toView(sources, LANGUAGE_SOURCE_SET_MODEL_TYPE);
     }
 
-    public DomainObjectSet<LanguageSourceSet> getSource() {
-        return new DefaultDomainObjectSet<LanguageSourceSet>(LanguageSourceSet.class, mainSourceSet);
-    }
-
-    public DomainObjectSet<BinarySpec> getBinaries() {
-        return binaries;
-    }
-
-    public FunctionalSourceSet getSources() {
-        return mainSourceSet;
-    }
-
-    public void sources(Action<? super PolymorphicDomainObjectContainer<LanguageSourceSet>> action) {
-        action.execute(mainSourceSet);
-    }
-
-    public Set<Class<? extends TransformationFileType>> getInputTypes() {
-        return Collections.emptySet();
-    }
-
-    private static class ComponentInfo {
-        final ComponentSpecIdentifier componentIdentifier;
-        final String typeName;
-        final FunctionalSourceSet sourceSets;
-
-        private ComponentInfo(ComponentSpecIdentifier componentIdentifier,
-                              String typeName,
-                              FunctionalSourceSet sourceSets) {
-            this.componentIdentifier = componentIdentifier;
-            this.typeName = typeName;
-            this.sourceSets = sourceSets;
-        }
+    @Override
+    public ModelMap<BinarySpec> getBinaries() {
+        return ModelMaps.toView(binaries, BINARY_SPEC_MODEL_TYPE);
     }
 }

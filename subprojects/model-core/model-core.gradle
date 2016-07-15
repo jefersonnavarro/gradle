@@ -17,7 +17,9 @@
 /*
  * The model management core.
  */
-apply plugin: "groovy"
+apply plugin: 'groovy'
+
+sourceCompatibility = javaVersion.java9Compatible ? 1.6 : 1.5
 
 dependencies {
     compile libraries.slf4j_api
@@ -31,13 +33,20 @@ dependencies {
 
     testCompile libraries.groovy
 
-    integTestCompile project(":core")
+    integTestCompile project(':core')
     integTestRuntime project(':plugins')
 
-    testFixturesCompile project(":internalTesting")
-    testFixturesCompile project(":core")
+    testFixturesCompile project(':internalTesting')
+    testFixturesCompile project(':core')
 }
 
 useTestFixtures()
-useClassycle()
-strictCompile()
+useTestFixtures(project: ':diagnostics', sourceSet: 'testFixtures')
+useClassycle(exclude: [
+    'org/gradle/model/internal/core/**',
+    'org/gradle/model/internal/inspect/**',
+    'org/gradle/model/internal/manage/schema/**',
+    'org/gradle/model/internal/type/**'
+])
+strictCompileIgnoreDeprecations()
+

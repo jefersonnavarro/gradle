@@ -24,20 +24,29 @@ import org.gradle.jvm.JvmLibrary;
 import org.gradle.language.java.artifact.JavadocArtifact;
 
 public class JavaLanguagePluginServiceRegistry implements PluginServiceRegistry {
+    @Override
     public void registerGlobalServices(ServiceRegistration registration) {
     }
 
+    @Override
+    public void registerBuildSessionServices(ServiceRegistration registration) {
+    }
+
+    @Override
     public void registerBuildServices(ServiceRegistration registration) {
         registration.addProvider(new ComponentRegistrationAction());
     }
 
+    @Override
+    public void registerGradleServices(ServiceRegistration registration) {
+    }
+
+    @Override
     public void registerProjectServices(ServiceRegistration registration) {
     }
 
     private static class ComponentRegistrationAction {
         public void configure(ServiceRegistration registration, ComponentTypeRegistry componentTypeRegistry) {
-            // TODO There should be a more explicit way to execute an action against existing services
-            // TODO:DAZ Dependency Management should be able to extract this from the plugin, without explicit registration
             componentTypeRegistry.maybeRegisterComponentType(JvmLibrary.class)
                     .registerArtifactType(JavadocArtifact.class, ArtifactType.JAVADOC);
         }

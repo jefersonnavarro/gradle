@@ -16,6 +16,7 @@
 
 package org.gradle.tooling.internal.consumer;
 
+import org.gradle.api.Transformer;
 import org.gradle.tooling.BuildAction;
 import org.gradle.tooling.BuildActionExecuter;
 import org.gradle.tooling.GradleConnectionException;
@@ -31,6 +32,7 @@ class DefaultBuildActionExecuter<T> extends AbstractLongRunningOperation<Default
 
     public DefaultBuildActionExecuter(BuildAction<T> buildAction, AsyncConsumerActionExecutor connection, ConnectionParameters parameters) {
         super(parameters);
+        operationParamsBuilder.setEntryPoint("BuildActionExecuter API");
         this.buildAction = buildAction;
         this.connection = connection;
     }
@@ -49,19 +51,19 @@ class DefaultBuildActionExecuter<T> extends AbstractLongRunningOperation<Default
     public void run(ResultHandler<? super T> handler) throws IllegalStateException {
         final ConsumerOperationParameters operationParameters = getConsumerOperationParameters();
         connection.run(new ConsumerAction<T>() {
-                           public ConsumerOperationParameters getParameters() {
-                               return operationParameters;
-                           }
+            public ConsumerOperationParameters getParameters() {
+                return operationParameters;
+            }
 
-                           public T run(ConsumerConnection connection) {
-                               return connection.run(buildAction, operationParameters);
-                           }
-                       }, new ResultHandlerAdapter<T>(handler) {
-                           @Override
-                           protected String connectionFailureMessage(Throwable failure) {
-                               return String.format("Could not run build action using %s.", connection.getDisplayName());
-                           }
-                       }
-        );
+            public T run(ConsumerConnection connection) {
+                T result = connection.run(buildAction, operationParameters);
+                return result;
+            }
+        }, new ResultHandlerAdapter<T>(handler, new ExceptionTransformer(new Transformer<String, Throwable>() {
+            @Override
+            public String transform(Throwable throwable) {
+                return String.format("Could not run build action using %s.", connection.getDisplayName());
+            }
+        })));
     }
 }

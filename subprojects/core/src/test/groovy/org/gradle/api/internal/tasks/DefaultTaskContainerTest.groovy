@@ -32,13 +32,13 @@ import static java.util.Collections.singletonMap
 public class DefaultTaskContainerTest extends Specification {
 
     private taskFactory = Mock(ITaskFactory)
-    def modelRegistry = new DefaultModelRegistry(null)
+    def modelRegistry = new DefaultModelRegistry(null, null)
     private project = Mock(ProjectInternal, name: "<project>") {
         getModelRegistry() >> modelRegistry
     }
     private taskCount = 1;
     private accessListener = Mock(ProjectAccessListener)
-    private container = new DefaultTaskContainerFactory(modelRegistry, new DirectInstantiator(), taskFactory, project, accessListener).create()
+    private container = new DefaultTaskContainerFactory(modelRegistry, DirectInstantiator.INSTANCE, taskFactory, project, accessListener).create()
 
     void "creates by Map"() {
         def options = singletonMap("option", "value")
@@ -288,12 +288,17 @@ public class DefaultTaskContainerTest extends Specification {
         task.dependsOn("b")
 
         addPlaceholderTask("c")
-        1 * taskFactory.create("c", DefaultTask) >> { this.task(it[0], it[1]) }
+        def cTask = this.task("c", DefaultTask)
+        def cTaskDependency = Mock(TaskDependencyInternal)
+        cTask.getTaskDependencies() >> cTaskDependency
+        cTaskDependency.getDependencies(_) >> []
+
+        1 * taskFactory.create("c", DefaultTask) >> { cTask }
 
         assert container.size() == 1
 
         when:
-        container.actualize()
+        container.realize()
 
         then:
         container.size() == 3
@@ -404,6 +409,7 @@ public class DefaultTaskContainerTest extends Specification {
     private <U extends TaskInternal> U task(final String name, Class<U> type) {
         Mock(type, name: "[task" + taskCount++ + "]") {
             getName() >> name
+            getTaskDependency() >> Mock(TaskDependency)
         }
     }
 

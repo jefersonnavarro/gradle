@@ -17,6 +17,7 @@ package org.gradle.api.internal.tasks.compile;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
+import org.gradle.api.Transformer;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.internal.file.collections.SimpleFileCollection;
 import org.gradle.api.internal.tasks.SimpleWorkResult;
@@ -31,6 +32,8 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
+import static org.gradle.internal.FileUtils.hasExtension;
+
 /**
  * A Groovy {@link Compiler} which does some normalization of the compile configuration and behaviour before delegating to some other compiler.
  */
@@ -42,6 +45,7 @@ public class NormalizingGroovyCompiler implements Compiler<GroovyJavaJointCompil
         this.delegate = delegate;
     }
 
+    @Override
     public WorkResult execute(GroovyJavaJointCompileSpec spec) {
         resolveAndFilterSourceFiles(spec);
         resolveClasspath(spec);
@@ -52,10 +56,16 @@ public class NormalizingGroovyCompiler implements Compiler<GroovyJavaJointCompil
     }
 
     private void resolveAndFilterSourceFiles(final GroovyJavaJointCompileSpec spec) {
+        final List<String> fileExtensions = CollectionUtils.collect(spec.getGroovyCompileOptions().getFileExtensions(), new Transformer<String, String>() {
+            @Override
+            public String transform(String extension) {
+                return '.' + extension;
+            }
+        });
         FileCollection filtered = spec.getSource().filter(new Spec<File>() {
             public boolean isSatisfiedBy(File element) {
-                for (String fileExtension : spec.getGroovyCompileOptions().getFileExtensions()) {
-                    if (element.getName().endsWith("." + fileExtension)) {
+                for (String fileExtension : fileExtensions) {
+                    if (hasExtension(element, fileExtension)) {
                         return true;
                     }
                 }
@@ -85,7 +95,9 @@ public class NormalizingGroovyCompiler implements Compiler<GroovyJavaJointCompil
     }
 
     private void logSourceFiles(GroovyJavaJointCompileSpec spec) {
-        if (!spec.getGroovyCompileOptions().isListFiles()) { return; }
+        if (!spec.getGroovyCompileOptions().isListFiles()) {
+            return;
+        }
 
         StringBuilder builder = new StringBuilder();
         builder.append("Source files to be compiled:");
@@ -98,7 +110,9 @@ public class NormalizingGroovyCompiler implements Compiler<GroovyJavaJointCompil
     }
 
     private void logCompilerArguments(GroovyJavaJointCompileSpec spec) {
-        if (!LOGGER.isDebugEnabled()) { return; }
+        if (!LOGGER.isDebugEnabled()) {
+            return;
+        }
 
         List<String> compilerArgs = new JavaCompilerArgumentsBuilder(spec).includeLauncherOptions(true).includeSourceFiles(true).build();
         String joinedArgs = Joiner.on(' ').join(compilerArgs);

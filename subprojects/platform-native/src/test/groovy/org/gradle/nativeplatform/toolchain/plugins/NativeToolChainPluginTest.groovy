@@ -19,20 +19,18 @@ package org.gradle.nativeplatform.toolchain.plugins
 import org.gradle.api.Plugin
 import org.gradle.api.plugins.ExtensionAware
 import org.gradle.api.plugins.ExtraPropertiesExtension
-import org.gradle.model.internal.fixture.ModelRegistryHelper
 import org.gradle.nativeplatform.toolchain.NativeToolChain
 import org.gradle.nativeplatform.toolchain.NativeToolChainRegistry
 import org.gradle.nativeplatform.toolchain.internal.NativeToolChainInternal
 import org.gradle.nativeplatform.toolchain.internal.NativeToolChainRegistryInternal
-import org.gradle.util.TestUtil
-import spock.lang.Specification
+import org.gradle.test.fixtures.AbstractProjectBuilderSpec
 
-abstract class NativeToolChainPluginTest extends Specification {
+abstract class NativeToolChainPluginTest extends AbstractProjectBuilderSpec {
 
-    def project = TestUtil.createRootProject()
-    def modelRegistryHelper = new ModelRegistryHelper(project)
+    def registry
 
     def setup() {
+        registry = project.modelRegistry
         project.pluginManager.apply(getPluginClass())
     }
 
@@ -45,17 +43,17 @@ abstract class NativeToolChainPluginTest extends Specification {
     }
 
     NativeToolChainInternal getToolchain() {
-        modelRegistryHelper.get("toolChains", NativeToolChainRegistryInternal).getByName(getToolchainName()) as NativeToolChainInternal
+        registry.get("toolChains", NativeToolChainRegistryInternal).getByName(getToolchainName()) as NativeToolChainInternal
     }
 
     void register() {
-        modelRegistryHelper.mutate(NativeToolChainRegistry) {
+        registry.mutate(NativeToolChainRegistry) {
             it.create(getToolchainName(), getToolchainClass())
         }
     }
 
     void addDefaultToolchain() {
-        modelRegistryHelper.mutate(NativeToolChainRegistryInternal) {
+        registry.mutate(NativeToolChainRegistryInternal) {
             it.addDefaultToolChains()
         }
     }

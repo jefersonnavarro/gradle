@@ -16,6 +16,7 @@
 
 package org.gradle.internal.reflect
 
+import spock.lang.Issue
 import spock.lang.Specification
 
 class ClassInspectorTest extends Specification {
@@ -248,6 +249,7 @@ class ClassInspectorTest extends Specification {
 
     interface SomeInterface {
         Number getProp()
+
         void setProp(Number value)
 
         String getReadOnly()
@@ -265,9 +267,13 @@ class ClassInspectorTest extends Specification {
 
     class PropNames {
         String getA() { null }
+
         String getB() { null }
+
         String getURL() { null }
+
         String getUrl() { null }
+
         String get_A() { null }
     }
 
@@ -311,6 +317,7 @@ class ClassInspectorTest extends Specification {
 
     interface SubInterface extends SomeInterface {
         Long getOther()
+
         void setOther(Long l)
     }
 
@@ -354,4 +361,52 @@ class ClassInspectorTest extends Specification {
             return ""
         }
     }
+
+    def "can extract super types"() {
+        expect:
+        ClassInspector.inspect(Object).superTypes.empty
+        ClassInspector.inspect(Serializable).superTypes.empty
+        ClassInspector.inspect(List).superTypes.toList() == [Collection, Iterable]
+    }
+
+    def "super types ordered by their distance"() {
+        expect:
+        ClassInspector.inspect(ArrayList).superTypes.toList() == [AbstractList, AbstractCollection, List, RandomAccess, Cloneable, Serializable, Collection, Iterable]
+    }
+
+    @Issue("GRADLE-3317")
+    def "method for property getter is for nearest declaration"() {
+        expect:
+        def details = ClassInspector.inspect(clazz)
+        def getters = details.getProperty('inputs').getGetters()
+        getters[0].getDeclaringClass() == declaringClass
+
+        where:
+        clazz                                                        | declaringClass
+        ImplementingRootClassSubSubImplementsRootInterfaceSub        | ImplementingRootClassSub
+        ExtendsImplementingRootClassSubSubImplementsRootInterfaceSub | ExtendsImplementingRootClassSubSubImplementsRootInterfaceSub
+        ExtendsImplementingRootClass                                 | ImplementingRootClass
+    }
+
+    public interface RootInterface {
+        public String getInputs()
+    }
+
+    public interface RootInterfaceSub extends RootInterface {}
+
+    public class ImplementingRootClass implements RootInterface {
+        public String getInputs() { return "super" }
+    }
+
+    public class ImplementingRootClassSub extends ImplementingRootClass {
+        public String getInputs() { return "concrete" }
+    }
+
+    public class ImplementingRootClassSubSubImplementsRootInterfaceSub extends ImplementingRootClassSub implements RootInterfaceSub {}
+
+    public class ExtendsImplementingRootClassSubSubImplementsRootInterfaceSub extends ImplementingRootClassSubSubImplementsRootInterfaceSub {
+        public String getInputs() { return "override" }
+    }
+
+    public class ExtendsImplementingRootClass extends ImplementingRootClass {}
 }

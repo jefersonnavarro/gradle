@@ -23,6 +23,9 @@ import org.gradle.internal.concurrent.ExecutorFactory;
 import org.gradle.internal.jvm.UnsupportedJavaRuntimeException;
 import org.gradle.internal.service.DefaultServiceRegistry;
 import org.gradle.tooling.CancellationTokenSource;
+import org.gradle.tooling.connection.GradleConnectionBuilder;
+import org.gradle.tooling.internal.connection.DefaultGradleConnectionBuilder;
+import org.gradle.tooling.internal.connection.GradleConnectionFactory;
 import org.gradle.tooling.internal.consumer.loader.CachingToolingImplementationLoader;
 import org.gradle.tooling.internal.consumer.loader.DefaultToolingImplementationLoader;
 import org.gradle.tooling.internal.consumer.loader.SynchronizedToolingImplementationLoader;
@@ -32,17 +35,22 @@ public class ConnectorServices {
     private static DefaultServiceRegistry singletonRegistry = new ConnectorServiceRegistry();
 
     public static DefaultGradleConnector createConnector() {
-        assertJava6();
+        checkJavaVersion();
         return singletonRegistry.getFactory(DefaultGradleConnector.class).create();
     }
 
+    public static GradleConnectionBuilder createGradleConnectionBuilder() {
+        checkJavaVersion();
+        return singletonRegistry.getFactory(GradleConnectionBuilder.class).create();
+    }
+
     public static CancellationTokenSource createCancellationTokenSource() {
-        assertJava6();
+        checkJavaVersion();
         return new DefaultCancellationTokenSource();
     }
 
     public static void close() {
-        assertJava6();
+        checkJavaVersion();
         singletonRegistry.close();
     }
 
@@ -54,11 +62,8 @@ public class ConnectorServices {
         singletonRegistry = new ConnectorServiceRegistry();
     }
 
-    private static void assertJava6() {
-        JavaVersion javaVersion = JavaVersion.current();
-        if (!javaVersion.isJava6Compatible()) {
-            throw UnsupportedJavaRuntimeException.usingUnsupportedVersion("Gradle Tooling API", JavaVersion.VERSION_1_6);
-        }
+    private static void checkJavaVersion() {
+        UnsupportedJavaRuntimeException.assertUsingVersion("Gradle Tooling API", JavaVersion.VERSION_1_7);
     }
 
     private static class ConnectorServiceRegistry extends DefaultServiceRegistry {
@@ -66,6 +71,14 @@ public class ConnectorServices {
             return new Factory<DefaultGradleConnector>() {
                 public DefaultGradleConnector create() {
                     return new DefaultGradleConnector(connectionFactory, distributionFactory);
+                }
+            };
+        }
+
+        protected Factory<GradleConnectionBuilder> createGradleConnectionBuilder(final GradleConnectionFactory gradleConnectionFactory, final DistributionFactory distributionFactory) {
+            return new Factory<GradleConnectionBuilder>() {
+                public GradleConnectionBuilder create() {
+                    return new DefaultGradleConnectionBuilder(gradleConnectionFactory, distributionFactory);
                 }
             };
         }
@@ -92,6 +105,10 @@ public class ConnectorServices {
 
         protected ConnectionFactory createConnectionFactory(ToolingImplementationLoader toolingImplementationLoader, ExecutorFactory executorFactory, LoggingProvider loggingProvider) {
             return new ConnectionFactory(toolingImplementationLoader, executorFactory, loggingProvider);
+        }
+
+        protected GradleConnectionFactory createGradleConnectionFactory(ToolingImplementationLoader toolingImplementationLoader, ExecutorFactory executorFactory, LoggingProvider loggingProvider) {
+            return new GradleConnectionFactory(toolingImplementationLoader, executorFactory, loggingProvider);
         }
     }
 }

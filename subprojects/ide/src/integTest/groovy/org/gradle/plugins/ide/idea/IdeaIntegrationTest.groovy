@@ -16,13 +16,15 @@
 
 package org.gradle.plugins.ide.idea
 
+import junit.framework.AssertionFailedError
 import org.custommonkey.xmlunit.Diff
 import org.custommonkey.xmlunit.ElementNameAndAttributeQualifier
+import org.custommonkey.xmlunit.XMLAssert
 import org.gradle.api.internal.artifacts.ivyservice.CacheLayout
 import org.gradle.integtests.fixtures.TestResources
-import org.gradle.internal.os.OperatingSystem
 import org.gradle.plugins.ide.AbstractIdeIntegrationTest
 import org.gradle.test.fixtures.file.TestFile
+import org.junit.ComparisonFailure
 import org.junit.Rule
 import org.junit.Test
 
@@ -33,7 +35,7 @@ class IdeaIntegrationTest extends AbstractIdeIntegrationTest {
     public final TestResources testResources = new TestResources(testDirectoryProvider)
 
     @Test
-    void mergesImlCorrectly() {
+    void mergesMetadataFilesCorrectly() {
         def buildFile = file("master/build.gradle")
         buildFile << """
 apply plugin: 'java'
@@ -42,13 +44,16 @@ apply plugin: 'idea'
 
         //given
         executer.usingBuildScript(buildFile).withTasks('idea').run()
-        def fileContent = getFile([:], 'master/master.iml').text
+        def projectContent = getFile([:], 'master/master.ipr').text
+        def moduleContent = getFile([:], 'master/master.iml').text
 
         executer.usingBuildScript(buildFile).withTasks('idea').run()
-        def contentAfterMerge = getFile([:], 'master/master.iml').text
+        def projectContentAfterMerge = getFile([:], 'master/master.ipr').text
+        def moduleContentAfterMerge = getFile([:], 'master/master.iml').text
 
         //then
-        assert fileContent == contentAfterMerge
+        assert projectContent == projectContentAfterMerge
+        assert moduleContent == moduleContentAfterMerge
     }
 
     @Test
@@ -96,11 +101,22 @@ apply plugin: 'idea'
     }
 
     @Test
+    void addsScalaSdkAndCompilerLibraries() {
+        executer.withTasks('idea').run()
+
+        hasProjectLibrary('root.ipr', 'scala-sdk-2.10.0', [], [], [], ['scala-library-2.10.0', 'scala-compiler-2.10.0', 'scala-reflect-2.10.0'])
+        hasProjectLibrary('root.ipr', 'scala-sdk-2.9.2', [], [], [], ['scala-library-2.9.2', 'scala-compiler-2.9.2'])
+        hasScalaSdk('project1/project1.iml', '2.9.2')
+        hasScalaSdk('project2/project2.iml', '2.10.0')
+        hasScalaSdk('project3/project3.iml', '2.9.2')
+    }
+
+    @Test
     void addsScalaFacetAndCompilerLibraries() {
         executer.withTasks('idea').run()
 
-        hasProjectLibrary('root.ipr', 'scala-compiler-2.9.2', ['scala-compiler-2.9.2.jar', 'scala-library-2.9.2.jar'], [], [])
-        hasProjectLibrary('root.ipr', 'scala-compiler-2.10.0', ['scala-compiler-2.10.0.jar', 'scala-library-2.10.0.jar', 'scala-reflect-2.10.0.jar'], [], [])
+        hasProjectLibrary('root.ipr', 'scala-compiler-2.10.0', ['scala-compiler-2.10.0', 'scala-library-2.10.0', 'scala-reflect-2.10.0'], [], [], [])
+        hasProjectLibrary('root.ipr', 'scala-compiler-2.9.2', ['scala-library-2.9.2', 'scala-compiler-2.9.2'], [], [], [])
         hasScalaFacet('project1/project1.iml', 'scala-compiler-2.9.2')
         hasScalaFacet('project2/project2.iml', 'scala-compiler-2.10.0')
         hasScalaFacet('project3/project3.iml', 'scala-compiler-2.9.2')
@@ -117,8 +133,8 @@ apply plugin: 'idea'
     @Test
     void canHandleCircularModuleDependencies() {
         def repoDir = file("repo")
-        def artifact1 = maven(repoDir).module("myGroup", "myArtifact1").dependsOn("myArtifact2").publish().artifactFile
-        def artifact2 = maven(repoDir).module("myGroup", "myArtifact2").dependsOn("myArtifact1").publish().artifactFile
+        def artifact1 = maven(repoDir).module("myGroup", "myArtifact1").dependsOnModules("myArtifact2").publish().artifactFile
+        def artifact2 = maven(repoDir).module("myGroup", "myArtifact2").dependsOnModules("myArtifact1").publish().artifactFile
 
         runIdeaTask """
 apply plugin: "java"
@@ -165,8 +181,8 @@ dependencies {
         def libs = module.component.orderEntry.library
         assert libs.size() == 1
         assert libs.CLASSES.root*.@url*.text().collect { new File(it).name } as Set == [artifact1.name + "!"] as Set
-        assert libs.CLASSES.root*.@url*.text().findAll(){ it.contains("\$GRADLE_REPO\$") }.size() == 1
-        assert libs.CLASSES.root*.@url*.text().collect { it.replace("\$GRADLE_REPO\$", relPath(repoDir))} as Set == ["jar://${relPath(artifact1)}!/"] as Set
+        assert libs.CLASSES.root*.@url*.text().findAll() { it.contains("\$GRADLE_REPO\$") }.size() == 1
+        assert libs.CLASSES.root*.@url*.text().collect { it.replace("\$GRADLE_REPO\$", relPath(repoDir)) } as Set == ["jar://${relPath(artifact1)}!/"] as Set
     }
 
     @Test
@@ -207,7 +223,7 @@ idea.module.iml {
 }
 
 tasks.idea << {
-    assert hookActivated == 1 : "withXml() hook shoold be fired"
+    assert hookActivated == 1 : "withXml() hook should be fired"
 }
 '''
     }
@@ -215,7 +231,7 @@ tasks.idea << {
     @Test
     void respectsPerConfigurationExcludes() {
         def repoDir = file("repo")
-        maven(repoDir).module("myGroup", "myArtifact1").dependsOn("myArtifact2").publish()
+        maven(repoDir).module("myGroup", "myArtifact1").dependsOnModules("myArtifact2").publish()
         maven(repoDir).module("myGroup", "myArtifact2").publish()
 
         runIdeaTask """
@@ -243,7 +259,7 @@ dependencies {
     @Test
     void respectsPerDependencyExcludes() {
         def repoDir = file("repo")
-        maven(repoDir).module("myGroup", "myArtifact1").dependsOn("myArtifact2").publish()
+        maven(repoDir).module("myGroup", "myArtifact1").dependsOnModules("myArtifact2").publish()
         maven(repoDir).module("myGroup", "myArtifact2").publish()
 
         runIdeaTask """
@@ -347,6 +363,28 @@ apply plugin: "idea"
     }
 
     @Test
+    void hasDefaultProjectLanguageLevelIfNoJavaPluginApplied() {
+        //given
+        file('build.gradle') << '''
+apply plugin: "idea"
+'''
+        file('settings.gradle') << 'rootProject.name = "root"'
+
+        //when
+        executer.withTasks('idea').run()
+
+        //then
+        assertProjectLanguageLevel("root.ipr", "JDK_1_6")
+    }
+
+    void assertProjectLanguageLevel(String iprFileName, String javaVersion) {
+        def project = new XmlSlurper().parse(file(iprFileName))
+        def projectRootMngr = project.component.find { it.@name == "ProjectRootManager" }
+        assert projectRootMngr
+        assert projectRootMngr.@languageLevel == javaVersion
+    }
+
+    @Test
     void canAddProjectLibraries() {
         runTask("idea", """
 apply plugin: 'idea'
@@ -361,34 +399,41 @@ idea.project {
 }
 """)
 
-        hasProjectLibrary("root.ipr", "someLib", ["someClasses.jar"], ["someJavadoc.jar"], ["someSources.jar"])
+        hasProjectLibrary("root.ipr", "someLib", ["someClasses.jar"], ["someJavadoc.jar"], ["someSources.jar"], [])
+    }
+
+    // We don't currently support generating an IDEA project from a software model component
+    @Test
+    void "does not explode if only ScalaLanguagePlugin is applied"() {
+        runTask("idea", """
+apply plugin: 'idea'
+apply plugin: 'org.gradle.scala-lang'
+""")
     }
 
     private void assertHasExpectedContents(String path) {
-        TestFile file = testDirectory.file(path).assertIsFile()
+        TestFile actualFile = testDirectory.file(path).assertIsFile()
         TestFile expectedFile = testDirectory.file("expectedFiles/${path}.xml").assertIsFile()
 
         def expectedXml = expectedFile.text
 
         def homeDir = executer.gradleUserHomeDir.absolutePath.replace(File.separator, '/')
         def pattern = Pattern.compile(Pattern.quote(homeDir) + "/caches/${CacheLayout.ROOT.getKey()}/${CacheLayout.FILE_STORE.getKey()}/([^/]+/[^/]+/[^/]+)/[a-z0-9]+/")
-        def actualXml = file.text.replaceAll(pattern, '@CACHE_DIR@/$1/@SHA1@/')
+        def actualXml = actualFile.text.replaceAll(pattern, '@CACHE_DIR@/$1/@SHA1@/')
 
         Diff diff = new Diff(expectedXml, actualXml)
         diff.overrideElementQualifier(new ElementNameAndAttributeQualifier())
         try {
-            assert diff.similar()
-        } catch (AssertionError e) {
-            if (OperatingSystem.current().unix) {
-                def process = ["diff", expectedFile.absolutePath, file.absolutePath].execute()
-                process.consumeProcessOutput(System.out, System.err)
-                process.waitFor()
-            }
-            throw new AssertionError("generated file '$path' does not contain the expected contents: ${e.message}.\nExpected:\n${expectedXml}\nActual:\n${actualXml}").initCause(e)
+            XMLAssert.assertXMLEqual(diff, true)
+        } catch (AssertionFailedError error) {
+            println "EXPECTED:\n${expectedXml}"
+            println "ACTUAL:\n${actualXml}"
+            throw new ComparisonFailure("Comparison filure: expected: $expectedFile, actual: $actualFile"
+                + "\nUnexpected content for generated actualFile: ${error.message}", expectedXml, actualXml).initCause(error)
         }
     }
 
-    private void hasProjectLibrary(String iprFileName, String libraryName, List<String> classesLibs, List<String> javadocLibs, List<String> sourcesLibs) {
+    private void hasProjectLibrary(String iprFileName, String libraryName, List<String> classesLibs, List<String> javadocLibs, List<String> sourcesLibs, List<String> compilerClasses) {
         def project = new XmlSlurper().parse(file(iprFileName))
         def libraryTable = project.component.find { it.@name == "libraryTable" }
         assert libraryTable
@@ -413,6 +458,23 @@ idea.project {
         sourcesLibs.each {
             assert sourcesRoots.@url.text().contains(it)
         }
+
+        def compilerClasspathRoots = library.properties[0].'compiler-classpath'[0].root
+        assert compilerClasspathRoots.size() == compilerClasses.size()
+        compilerClasses.each {
+            assert compilerClasspathRoots.@url.text().contains(it)
+        }
+    }
+
+    private void hasScalaSdk(String imlFileName, String version) {
+        def module = new XmlSlurper().parse(file(imlFileName))
+        def newModuleRootManager = module.component.find { it.@name == "NewModuleRootManager" }
+        assert newModuleRootManager
+
+        def sdkLibrary = newModuleRootManager.orderEntry.find { it.@name == "scala-sdk-$version"}
+        assert sdkLibrary
+        assert sdkLibrary.@type == "library"
+        assert sdkLibrary.@level == "project"
     }
 
     private void hasScalaFacet(String imlFileName, String libraryName) {
@@ -437,7 +499,7 @@ idea.project {
         urls.any { it.endsWith(path) }
     }
 
-    private String relPath(File file){
+    private String relPath(File file) {
         return file.absolutePath.replace(File.separator, "/")
     }
 }

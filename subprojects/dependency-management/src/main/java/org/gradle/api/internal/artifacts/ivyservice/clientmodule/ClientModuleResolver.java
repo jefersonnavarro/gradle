@@ -22,10 +22,10 @@ import org.gradle.api.artifacts.ClientModule;
 import org.gradle.api.artifacts.ModuleDependency;
 import org.gradle.api.artifacts.component.ComponentIdentifier;
 import org.gradle.api.internal.artifacts.ivyservice.moduleconverter.dependencies.DependencyDescriptorFactory;
-import org.gradle.internal.component.external.model.ModuleComponentArtifactMetaData;
-import org.gradle.internal.component.external.model.MutableModuleComponentResolveMetaData;
-import org.gradle.internal.component.local.model.DslOriginDependencyMetaData;
-import org.gradle.internal.component.model.DependencyMetaData;
+import org.gradle.internal.component.external.model.ModuleComponentArtifactMetadata;
+import org.gradle.internal.component.external.model.MutableModuleComponentResolveMetadata;
+import org.gradle.internal.component.model.ComponentOverrideMetadata;
+import org.gradle.internal.component.model.DependencyMetadata;
 import org.gradle.internal.resolve.resolver.ComponentMetaDataResolver;
 import org.gradle.internal.resolve.result.BuildableComponentResolveResult;
 
@@ -40,38 +40,34 @@ public class ClientModuleResolver implements ComponentMetaDataResolver {
         this.dependencyDescriptorFactory = dependencyDescriptorFactory;
     }
 
-    public void resolve(DependencyMetaData dependency, ComponentIdentifier identifier, BuildableComponentResolveResult result) {
-        resolver.resolve(dependency, identifier, result);
+    public void resolve(ComponentIdentifier identifier, ComponentOverrideMetadata componentOverrideMetadata, BuildableComponentResolveResult result) {
+        resolver.resolve(identifier, componentOverrideMetadata, result);
 
         if (result.getFailure() != null) {
             return;
         }
-        if (dependency instanceof DslOriginDependencyMetaData) {
-            ModuleDependency maybeClientModule = ((DslOriginDependencyMetaData) dependency).getSource();
-            if (maybeClientModule instanceof ClientModule) {
-                ClientModule clientModule = (ClientModule) maybeClientModule;
+        ClientModule clientModule = componentOverrideMetadata.getClientModule();
+        if (clientModule != null) {
+            MutableModuleComponentResolveMetadata clientModuleMetaData = ((MutableModuleComponentResolveMetadata)result.getMetaData()).copy();
+            addClientModuleDependencies(clientModule, clientModuleMetaData);
 
-                MutableModuleComponentResolveMetaData clientModuleMetaData = ((MutableModuleComponentResolveMetaData)result.getMetaData()).copy();
-                addClientModuleDependencies(clientModule, clientModuleMetaData);
+            setClientModuleArtifact(clientModuleMetaData);
 
-                setClientModuleArtifact(clientModuleMetaData);
-
-                result.setMetaData(clientModuleMetaData);
-            }
+            result.setMetaData(clientModuleMetaData);
         }
     }
 
-    private void addClientModuleDependencies(ClientModule clientModule, MutableModuleComponentResolveMetaData clientModuleMetaData) {
-        List<DependencyMetaData> dependencies = Lists.newArrayList();
+    private void addClientModuleDependencies(ClientModule clientModule, MutableModuleComponentResolveMetadata clientModuleMetaData) {
+        List<DependencyMetadata> dependencies = Lists.newArrayList();
         for (ModuleDependency moduleDependency : clientModule.getDependencies()) {
-            DependencyMetaData dependencyMetaData = dependencyDescriptorFactory.createDependencyDescriptor(moduleDependency.getConfiguration(), clientModuleMetaData.getDescriptor(), moduleDependency);
-            dependencies.add(dependencyMetaData);
+            DependencyMetadata dependencyMetadata = dependencyDescriptorFactory.createDependencyDescriptor(moduleDependency.getConfiguration(), moduleDependency);
+            dependencies.add(dependencyMetadata);
         }
         clientModuleMetaData.setDependencies(dependencies);
     }
 
-    private void setClientModuleArtifact(MutableModuleComponentResolveMetaData clientModuleMetaData) {
-        ModuleComponentArtifactMetaData artifact = clientModuleMetaData.artifact("jar", "jar", null);
+    private void setClientModuleArtifact(MutableModuleComponentResolveMetadata clientModuleMetaData) {
+        ModuleComponentArtifactMetadata artifact = clientModuleMetaData.artifact("jar", "jar", null);
         clientModuleMetaData.setArtifacts(Sets.newHashSet(artifact));
     }
 }

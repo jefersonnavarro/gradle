@@ -15,65 +15,44 @@
  */
 
 package org.gradle.language.base
+
+import org.gradle.api.reporting.model.ModelReportOutput
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import spock.lang.Unroll
-
-import static org.gradle.util.TextUtil.toPlatformLineSeparators
 
 class CustomComponentBinariesIntegrationTest extends AbstractIntegrationSpec {
 
     def "setup"() {
         buildFile << """
-import org.gradle.model.*
-import org.gradle.model.collection.*
-import org.gradle.api.internal.file.FileResolver
-import org.gradle.internal.reflect.Instantiator
-import javax.inject.Inject
-import org.gradle.internal.service.ServiceRegistry
-
-interface SampleBinary extends BinarySpec {}
-interface OtherSampleBinary extends SampleBinary {}
-
-interface LibrarySourceSet extends LanguageSourceSet {}
-
-class DefaultLibrarySourceSet extends BaseLanguageSourceSet implements LibrarySourceSet { }
-
-class DefaultSampleBinary extends BaseBinarySpec implements SampleBinary {}
-
-class OtherSampleBinaryImpl extends BaseBinarySpec implements OtherSampleBinary {}
-
-interface SampleLibrary extends ComponentSpec {}
-
-class DefaultSampleLibrary extends BaseComponentSpec implements SampleLibrary {}
+    @Managed interface SampleLibrary extends GeneralComponentSpec {}
+    @Managed interface SampleBinary extends BinarySpec {}
+    @Managed interface OtherSampleBinary extends SampleBinary {}
+    @Managed interface LibrarySourceSet extends LanguageSourceSet {}
 
     class MyBinaryDeclarationModel implements Plugin<Project> {
         void apply(final Project project) {}
 
         static class ComponentModel extends RuleSource {
             @ComponentType
-            void register(ComponentTypeBuilder<SampleLibrary> builder) {
-                builder.defaultImplementation(DefaultSampleLibrary)
-            }
+            void registerLibrary(TypeBuilder<SampleLibrary> builder) {}
 
             @Mutate
-            void createSampleComponentComponents(CollectionBuilder<SampleLibrary> componentSpecs, ServiceRegistry serviceRegistry) {
-                componentSpecs.create("sampleLib", new Action<SampleLibrary>() {
-                    public void execute(SampleLibrary library) {
-                        library.sources {
-                            it.add(BaseLanguageSourceSet.create(DefaultLibrarySourceSet, "librarySource", "librarySource", serviceRegistry.get(FileResolver), serviceRegistry.get(Instantiator)))
-                        }
+            void createSampleComponentComponents(ModelMap<SampleLibrary> componentSpecs) {
+                componentSpecs.create("sampleLib") {
+                    sources {
+                        librarySource(LibrarySourceSet)
                     }
-                });
+                }
             }
 
-            @BinaryType
-            void register(BinaryTypeBuilder<SampleBinary> builder) {
-                builder.defaultImplementation(DefaultSampleBinary)
-            }
+            @ComponentType
+            void registerBinary(TypeBuilder<SampleBinary> builder) {}
 
-            @BinaryType
-            void registerOther(BinaryTypeBuilder<OtherSampleBinary> builder) {
-                builder.defaultImplementation(OtherSampleBinaryImpl)
+            @ComponentType
+            void registerOtherBinary(TypeBuilder<OtherSampleBinary> builder) {}
+
+            @ComponentType
+            void registerSourceSet(TypeBuilder<LibrarySourceSet> builder) {
             }
         }
     }
@@ -82,22 +61,65 @@ class DefaultSampleLibrary extends BaseComponentSpec implements SampleLibrary {}
 """
     }
 
-    def "can register binaries using @ComponentBinaries"() {
+    def "binaries registered using @ComponentBinaries rule are visible in model report"() {
         when:
         buildFile << withSimpleComponentBinaries()
-        buildFile << """
 
+        then:
+        succeeds "model"
 
-        task checkModel << {
-            assert project.binaries.size() == 2
-            def sampleBinary = project.binaries.sampleLibBinary
-            def othersSampleBinary = project.binaries.sampleLibOtherBinary
-            assert sampleBinary instanceof SampleBinary
-            assert sampleBinary.displayName == "DefaultSampleBinary 'sampleLibBinary'"
-            assert othersSampleBinary instanceof OtherSampleBinary
-            assert othersSampleBinary.displayName == "OtherSampleBinaryImpl 'sampleLibOtherBinary'"
+        and:
+        def reportOutput = ModelReportOutput.from(output)
+        reportOutput.hasNodeStructure {
+            components {
+                sampleLib {
+                    binaries {
+                        binary(type: 'SampleBinary', creator: 'MyComponentBinariesPlugin.Rules#createBinariesForSampleLibrary(ModelMap<SampleBinary>, SampleLibrary) > create(binary)') {
+                            tasks()
+                            sources()
+                        }
+                        otherBinary(type: 'OtherSampleBinary', creator: 'MyComponentBinariesPlugin.Rules#createBinariesForSampleLibrary(ModelMap<SampleBinary>, SampleLibrary) > create(otherBinary)') {
+                            tasks()
+                            sources()
+                        }
+                    }
+                    sources() {
+                        librarySource()
+                    }
+                }
+            }
         }
-"""
+        reportOutput.hasNodeStructure {
+            binaries {
+                sampleLibBinary()
+                sampleLibOtherBinary()
+            }
+        }
+    }
+
+    def "can register binaries using @ComponentBinaries rule"() {
+        when:
+        buildFile << withSimpleComponentBinaries()
+        buildFile << '''
+
+        model {
+            tasks {
+                checkModel(Task) {
+                    doLast {
+                        def binaries = $.binaries
+                        assert binaries.size() == 2
+                        def sampleBinary = binaries.sampleLibBinary
+                        def othersSampleBinary = binaries.sampleLibOtherBinary
+                        assert sampleBinary instanceof SampleBinary
+                        assert sampleBinary.displayName == "SampleBinary 'sampleLib:binary'"
+                        assert othersSampleBinary instanceof OtherSampleBinary
+                        assert othersSampleBinary.displayName == "OtherSampleBinary 'sampleLib:otherBinary'"
+                    }
+                }
+            }
+        }
+'''
+
         then:
         succeeds "checkModel"
     }
@@ -108,35 +130,42 @@ class DefaultSampleLibrary extends BaseComponentSpec implements SampleLibrary {}
         when:
         succeeds "components"
         then:
-        output.contains(toPlatformLineSeparators(
-"""DefaultSampleLibrary 'sampleLib'
---------------------------------
+        output.contains("""
+SampleLibrary 'sampleLib'
+-------------------------
 
 Source sets
-    DefaultLibrarySourceSet 'librarySource:librarySource'
-        src${File.separator}sampleLib${File.separator}librarySource
+    Library source 'sampleLib:librarySource'
+        srcDir: src${File.separator}sampleLib${File.separator}librarySource
 
 Binaries
-    DefaultSampleBinary 'sampleLibBinary'
+    SampleBinary 'sampleLib:binary'
         build using task: :sampleLibBinary
-    OtherSampleBinaryImpl 'sampleLibOtherBinary'
+    OtherSampleBinary 'sampleLib:otherBinary'
         build using task: :sampleLibOtherBinary
-"""))
+""")
     }
 
     def "links components sourceSets to binaries"() {
         when:
         buildFile << withSimpleComponentBinaries()
-        buildFile << """
-        task checkSourceSets << {
-            def sampleBinary = project.binaries.sampleLibBinary
-            def othersSampleBinary = project.binaries.sampleLibOtherBinary
-            assert sampleBinary.source[0] instanceof DefaultLibrarySourceSet
-            assert sampleBinary.source[0].displayName == "DefaultLibrarySourceSet 'librarySource:librarySource'"
-            assert othersSampleBinary.source[0] instanceof DefaultLibrarySourceSet
-            assert othersSampleBinary.source[0].displayName == "DefaultLibrarySourceSet 'librarySource:librarySource'"
-        }
-"""
+        buildFile << '''
+            model {
+                tasks {
+                    checkSourceSets(Task) {
+                        doLast {
+                            def binaries = $.binaries
+                            def sampleBinarySourceSet = binaries.sampleLibBinary.inputs.toList()[0]
+                            def othersSampleBinarySourceSet = binaries.sampleLibOtherBinary.inputs.toList()[0]
+                            assert sampleBinarySourceSet instanceof LibrarySourceSet
+                            assert sampleBinarySourceSet.displayName == "Library source 'sampleLib:librarySource'"
+                            assert othersSampleBinarySourceSet instanceof LibrarySourceSet
+                            assert othersSampleBinarySourceSet.displayName == "Library source 'sampleLib:librarySource'"
+                        }
+                    }
+                }
+            }
+'''
         then:
         succeeds "checkSourceSets"
     }
@@ -155,21 +184,27 @@ Binaries
         "assemble"        | "assemble task"
     }
 
-    def "Can access lifecycle task of binary via BinarySpec.buildTask"(){
+    def "can access lifecycle task of binary via BinarySpec.buildTask"(){
         when:
         buildFile << withSimpleComponentBinaries()
-        buildFile << """
-
-        task tellTaskName << {
-            assert project.binaries.sampleLibBinary.buildTask instanceof Task
-            assert project.binaries.sampleLibBinary.buildTask.name ==  "sampleLibBinary"
-        }
-"""
+        buildFile << '''
+            model {
+                tasks {
+                    tellTaskName(Task) {
+                        doLast {
+                            def binaries = $.binaries
+                            assert binaries.sampleLibBinary.buildTask instanceof Task
+                            assert binaries.sampleLibBinary.buildTask.name == "sampleLibBinary"
+                        }
+                    }
+                }
+            }
+'''
         then:
         succeeds "tellTaskName"
     }
 
-    def "ComponentBinaries rule supports additional parameters as rule inputs"() {
+    def "@ComponentBinaries rule supports additional parameters as rule inputs"() {
         given:
         buildFile << """
         class CustomModel {
@@ -186,10 +221,9 @@ Binaries
                }
 
                @ComponentBinaries
-               void createBinariesForSampleLibrary(CollectionBuilder<SampleBinary> binaries, $ruleInputs) {
+               void createBinariesForSampleLibrary(ModelMap<SampleBinary> binaries, $ruleInputs) {
                    myModel.values.each{ value ->
-                        binaries.create("\${library.name}\${value}Binary")
-
+                        binaries.create("\${value}Binary")
                    }
                }
            }
@@ -207,22 +241,93 @@ Binaries
         when:
         succeeds "components"
         then:
-        output.contains(toPlatformLineSeparators("""
-DefaultSampleLibrary 'sampleLib'
---------------------------------
+        output.contains("""
+SampleLibrary 'sampleLib'
+-------------------------
 
 Source sets
-    DefaultLibrarySourceSet 'librarySource:librarySource'
-        src${File.separator}sampleLib${File.separator}librarySource
+    Library source 'sampleLib:librarySource'
+        srcDir: src${File.separator}sampleLib${File.separator}librarySource
 
 Binaries
-    DefaultSampleBinary 'sampleLib1stBinary'
+    SampleBinary 'sampleLib:1stBinary'
         build using task: :sampleLib1stBinary
-    DefaultSampleBinary 'sampleLib2ndBinary'
+    SampleBinary 'sampleLib:2ndBinary'
         build using task: :sampleLib2ndBinary
-"""))
+""")
         where:
-        ruleInputs << ["SampleLibrary library, CustomModel myModel"]//,  "CustomModel myModel, SampleLibrary library"]
+        ruleInputs << ["SampleLibrary library, CustomModel myModel",  "CustomModel myModel, SampleLibrary library"]
+    }
+
+    def "@ComponentBinaries rule operates with fully configured component"() {
+        given:
+        buildFile << """
+@Managed
+trait BinaryWithValue implements BinarySpec {
+    String valueFromComponent
+}
+@Managed
+trait ComponentWithValue implements GeneralComponentSpec {
+    String valueForBinary
+}
+
+class MyComponentBinariesPlugin implements Plugin<Project> {
+    void apply(final Project project) {}
+
+    static class Rules extends RuleSource {
+        @ComponentType
+        void registerComponent(TypeBuilder<ComponentWithValue> builder) {}
+
+        @ComponentType
+        void registerBinary(TypeBuilder<BinaryWithValue> builder) {}
+
+        @ComponentBinaries
+        void createBinaries(ModelMap<BinaryWithValue> binaries, ComponentWithValue component) {
+            assert component.valueForBinary == "configured-value"
+            binaries.create("myBinary") {
+                assert component.valueForBinary == "configured-value"
+                valueFromComponent = component.valueForBinary
+            }
+        }
+    }
+}
+
+apply plugin: MyComponentBinariesPlugin
+
+model {
+    components {
+        custom(ComponentWithValue) {
+            valueForBinary = "create-value"
+        }
+    }
+    components {
+        custom {
+            valueForBinary = "configured-value"
+        }
+    }
+    tasks {
+        checkModel(Task) {
+            doLast {
+                def component = \$.components.custom
+                assert component.binaries.size() == 1
+                def binary = component.binaries.myBinary
+
+                assert component.valueForBinary == "configured-value"
+                assert binary.valueFromComponent == "configured-value"
+            }
+        }
+    }
+}
+
+"""
+
+        when:
+        succeeds "model"
+
+        then:
+        def modelReport = ModelReportOutput.from(output).modelNode
+        assert modelReport.components.custom.valueForBinary.@nodeValue[0] == 'configured-value'
+        assert modelReport.components.custom.binaries.myBinary.valueFromComponent.@nodeValue[0] == 'configured-value'
     }
 
     String withSimpleComponentBinaries() {
@@ -232,13 +337,86 @@ Binaries
 
             static class Rules extends RuleSource {
                 @ComponentBinaries
-                void createBinariesForSampleLibrary(CollectionBuilder<SampleBinary> binaries, SampleLibrary library) {
-                    binaries.create("\${library.name}Binary")
-                    binaries.create("\${library.name}OtherBinary", OtherSampleBinary)
+                void createBinariesForSampleLibrary(ModelMap<SampleBinary> binaries, SampleLibrary library) {
+                    binaries.create("binary")
+                    binaries.create("otherBinary", OtherSampleBinary)
                 }
             }
          }
         apply plugin: MyComponentBinariesPlugin
 """
+    }
+
+    def "subject of @ComponentBinaries rule is Groovy decorated"() {
+        buildFile << """
+            class GroovyComponentBinariesRules extends RuleSource {
+                @ComponentBinaries
+                void createBinariesForSampleLibrary(ModelMap<SampleBinary> binaries, SampleLibrary library) {
+                    binaries.derivedFromMethodName(SampleBinary) {}
+                }
+            }
+
+            apply type: GroovyComponentBinariesRules
+        """
+
+        when:
+        succeeds "components"
+
+        then:
+        output.contains("""
+Binaries
+    SampleBinary 'sampleLib:derivedFromMethodName'
+        build using task: :sampleLibDerivedFromMethodName
+""")
+    }
+
+    def "attempt to mutate the subject of a @ComponentBinaries after the method has finished results in an error"() {
+        buildFile << """
+            class BinariesHolder {
+                ModelMap<SampleBinary> binaries
+            }
+            class IllegallyMutatingComponentBinariesRules extends RuleSource {
+                @Model
+                BinariesHolder holder() {
+                    return new BinariesHolder()
+                }
+
+                @ComponentBinaries
+                void createBinariesForSampleLibrary(ModelMap<SampleBinary> binaries, SampleLibrary library, BinariesHolder holder) {
+                    holder.binaries = binaries
+                }
+
+                @Mutate
+                void mutateBinariesOutsideOfComponentBinariesRule(ModelMap<Task> task, BinariesHolder holder) {
+                    holder.binaries.create("illegal", SampleBinary)
+                }
+            }
+
+            apply type: IllegallyMutatingComponentBinariesRules
+        """
+
+        when:
+        fails "tasks"
+
+        then:
+        failure.assertHasCause("Cannot create 'components.sampleLib.binaries.illegal' using creation rule 'IllegallyMutatingComponentBinariesRules#createBinariesForSampleLibrary(ModelMap<SampleBinary>, SampleLibrary, BinariesHolder) > create(illegal)' as model element 'components.sampleLib.binaries' is no longer mutable.")
+    }
+
+    def "reports failure in @ComponentBinaries rule"() {
+        when:
+        buildFile << """
+            class MyComponentBinariesPlugin extends RuleSource {
+                @ComponentBinaries
+                void createBinariesForSampleLibrary(ModelMap<SampleBinary> binaries, SampleLibrary library) {
+                    throw new RuntimeException('broken')
+                }
+            }
+            apply plugin: MyComponentBinariesPlugin
+        """
+
+        then:
+        fails "model"
+        failure.assertHasCause('Exception thrown while executing model rule: MyComponentBinariesPlugin#createBinariesForSampleLibrary')
+        failure.assertHasCause('broken')
     }
 }

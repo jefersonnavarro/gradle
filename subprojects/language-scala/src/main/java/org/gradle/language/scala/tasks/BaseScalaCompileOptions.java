@@ -16,6 +16,8 @@
 
 package org.gradle.language.scala.tasks;
 
+import org.gradle.api.Incubating;
+import org.gradle.api.tasks.Console;
 import org.gradle.api.tasks.Input;
 import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.Optional;
@@ -26,8 +28,9 @@ import org.gradle.api.tasks.scala.ScalaForkOptions;
 import java.util.List;
 
 /**
- * Options for Scala platform compilation, excluding any options for compilation with Ant.
+ * Options for Scala platform compilation.
  */
+@Incubating
 public class BaseScalaCompileOptions extends AbstractOptions {
 
     private static final long serialVersionUID = 0;
@@ -44,7 +47,7 @@ public class BaseScalaCompileOptions extends AbstractOptions {
 
     private String encoding;
 
-    private String force = "never";
+    private boolean force;
 
     private List<String> additionalParameters;
 
@@ -61,6 +64,7 @@ public class BaseScalaCompileOptions extends AbstractOptions {
     /**
      * Fail the build on compilation errors.
      */
+    @Input
     public boolean isFailOnError() {
         return failOnError;
     }
@@ -72,6 +76,7 @@ public class BaseScalaCompileOptions extends AbstractOptions {
     /**
      * Generate deprecation information.
      */
+    @Console
     public boolean isDeprecation() {
         return deprecation;
     }
@@ -83,6 +88,7 @@ public class BaseScalaCompileOptions extends AbstractOptions {
     /**
      * Generate unchecked information.
      */
+    @Console
     public boolean isUnchecked() {
         return unchecked;
     }
@@ -132,15 +138,15 @@ public class BaseScalaCompileOptions extends AbstractOptions {
     /**
      * Whether to force the compilation of all files.
      * Legal values:
-     * - never (only compile modified files)
-     * - changed (compile all files when at least one file is modified)
-     * - always (always recompile all files)
+     * - false (only compile modified files)
+     * - true (always recompile all files)
      */
-    public String getForce() {
+    @Input
+    public boolean isForce() {
         return force;
     }
 
-    public void setForce(String force) {
+    public void setForce(boolean force) {
         this.force = force;
     }
 
@@ -148,6 +154,7 @@ public class BaseScalaCompileOptions extends AbstractOptions {
      * Additional parameters passed to the compiler.
      * Each parameter must start with '-'.
      */
+    @Optional @Input
     public List<String> getAdditionalParameters() {
         return additionalParameters;
     }
@@ -159,6 +166,7 @@ public class BaseScalaCompileOptions extends AbstractOptions {
     /**
      * List files to be compiled.
      */
+    @Console
     public boolean isListFiles() {
         return listFiles;
     }
@@ -171,6 +179,7 @@ public class BaseScalaCompileOptions extends AbstractOptions {
      * Specifies the amount of logging.
      * Legal values:  none, verbose, debug
      */
+    @Console
     public String getLoggingLevel() {
         return loggingLevel;
     }
@@ -184,6 +193,7 @@ public class BaseScalaCompileOptions extends AbstractOptions {
      * Legal values: namer, typer, pickler, uncurry, tailcalls, transmatch, explicitouter, erasure,
      *               lambdalift, flatten, constructors, mixin, icode, jvm, terminal.
      */
+    @Console
     public List<String> getLoggingPhases() {
         return loggingPhases;
     }
@@ -193,9 +203,9 @@ public class BaseScalaCompileOptions extends AbstractOptions {
     }
 
     /**
-     * Options for running the Scala compiler in a separate process. These options only take effect
-     * if {@code fork} is set to {@code true}.
+     * Options for running the Scala compiler in a separate process.
      */
+    @Nested
     public ScalaForkOptions getForkOptions() {
         return forkOptions;
     }

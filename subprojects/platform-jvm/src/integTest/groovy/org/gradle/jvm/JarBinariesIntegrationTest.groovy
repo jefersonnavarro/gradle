@@ -16,6 +16,7 @@
 
 package org.gradle.jvm
 
+import org.gradle.api.reporting.model.ModelReportOutput
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.util.Requires
 import org.gradle.util.TestPrecondition
@@ -30,13 +31,13 @@ class JarBinariesIntegrationTest extends AbstractIntegrationSpec {
         """
     }
 
-    @Requires(TestPrecondition.JDK7_OR_EARLIER)
+    @Requires(TestPrecondition.JDK8_OR_EARLIER)
     def "assemble task constructs all buildable binaries" () {
         buildFile << """
             model {
                 components {
                     myJvmLib1(JvmLibrarySpec) {
-                        targetPlatform "java8"
+                        targetPlatform "java9"
                     }
                     myJvmLib2(JvmLibrarySpec)
                 }
@@ -51,20 +52,23 @@ class JarBinariesIntegrationTest extends AbstractIntegrationSpec {
         notExecuted(":myJvmLib1Jar")
 
         and:
-        file("build/jars/myJvmLib2Jar/myJvmLib2.jar").assertExists()
-        file("build/jars/myJvmLib1Jar/myJvmLib1.jar").assertDoesNotExist()
+        file("build/jars/myJvmLib2/jar/myJvmLib2.jar").assertExists()
+        file("build/jars/myJvmLib1/jar/myJvmLib1.jar").assertDoesNotExist()
     }
 
-    @Requires(TestPrecondition.JDK7_OR_EARLIER)
+    @Requires(TestPrecondition.JDK8_OR_EARLIER)
     def "assemble task produces sensible error when there are no buildable binaries" () {
         buildFile << """
             model {
                 components {
                     myJvmLib1(JvmLibrarySpec) {
-                        targetPlatform "java8"
+                        targetPlatform "java9"
                     }
                     myJvmLib2(JvmLibrarySpec) {
-                        targetPlatform "java8"
+                        targetPlatform "java9"
+                    }
+                    myJvmLib3(JvmLibrarySpec) {
+                        binaries.all { buildable = false }
                     }
                 }
             }
@@ -77,8 +81,58 @@ class JarBinariesIntegrationTest extends AbstractIntegrationSpec {
         failureDescriptionContains("Execution failed for task ':assemble'.")
         failure.assertThatCause(Matchers.<String>allOf(
                 Matchers.startsWith("No buildable binaries found:"),
-                Matchers.containsString("myJvmLib1Jar: Could not target platform: 'Java SE 8' using tool chain:"),
-                Matchers.containsString("myJvmLib2Jar: Could not target platform: 'Java SE 8' using tool chain:")
+                Matchers.containsString("Jar 'myJvmLib1:jar': Could not target platform: 'Java SE 9' using tool chain:"),
+                Matchers.containsString("Jar 'myJvmLib2:jar': Could not target platform: 'Java SE 9' using tool chain:"),
+                Matchers.containsString("Jar 'myJvmLib3:jar': Disabled by user")
         ))
     }
+
+    def "model report should display configured components and binaries"() {
+        given:
+        buildFile << """
+            plugins {
+                id 'java-lang'
+            }
+            model {
+                components {
+                    jvmLibrary(JvmLibrarySpec) {
+                        sources {
+                            other(JavaSourceSet)
+                        }
+                        binaries {
+                            jar {
+                                sources {
+                                    binarySources(JavaSourceSet)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+"""
+        when:
+        succeeds "model"
+
+        then:
+        ModelReportOutput.from(output).hasNodeStructure {
+            components {
+                jvmLibrary {
+                    binaries {
+                        jar(type: "org.gradle.jvm.JarBinarySpec") {
+                            sources {
+                                binarySources(type: "org.gradle.language.java.JavaSourceSet")
+                            }
+                            tasks()
+                        }
+                    }
+                    sources {
+                        java(type: "org.gradle.language.java.JavaSourceSet")
+                        other(type: "org.gradle.language.java.JavaSourceSet")
+                        resources(type: "org.gradle.language.jvm.JvmResourceSet")
+                    }
+                }
+            }
+        }
+    }
+
 }

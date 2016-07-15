@@ -18,38 +18,50 @@ package org.gradle.plugins.ide.internal.tooling;
 
 import org.gradle.api.Project;
 import org.gradle.api.Task;
-import org.gradle.api.internal.project.ProjectTaskLister;
-import org.gradle.api.internal.tasks.PublicTaskSpecification;
 import org.gradle.api.internal.tasks.TaskContainerInternal;
+import org.gradle.plugins.ide.internal.tooling.model.LaunchableGradleProjectTask;
+import org.gradle.plugins.ide.internal.tooling.model.LaunchableGradleTask;
 import org.gradle.tooling.internal.gradle.DefaultGradleProject;
-import org.gradle.tooling.internal.impl.LaunchableGradleProjectTask;
-import org.gradle.tooling.internal.impl.LaunchableGradleTask;
-import org.gradle.tooling.provider.model.ToolingModelBuilder;
+import org.gradle.tooling.internal.gradle.PartialGradleProject;
+import org.gradle.tooling.provider.model.internal.ProjectToolingModelBuilder;
 
 import java.util.ArrayList;
-import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
+import java.util.SortedSet;
+
+import static org.gradle.plugins.ide.internal.tooling.ToolingModelBuilderSupport.buildFromTask;
 
 /**
  * Builds the GradleProject that contains the project hierarchy and task information
  */
-public class GradleProjectBuilder implements ToolingModelBuilder {
-    private final ProjectTaskLister taskLister;
+public class GradleProjectBuilder implements ProjectToolingModelBuilder {
 
-    public GradleProjectBuilder(ProjectTaskLister taskLister) {
-        this.taskLister = taskLister;
-    }
-
+    @Override
     public boolean canBuild(String modelName) {
         return modelName.equals("org.gradle.tooling.model.GradleProject");
     }
 
+    @Override
     public Object buildAll(String modelName, Project project) {
         return buildHierarchy(project.getRootProject());
     }
 
     public DefaultGradleProject buildAll(Project project) {
         return buildHierarchy(project.getRootProject());
+    }
+
+    @Override
+    public void addModels(String modelName, Project project, Map<String, Object> models) {
+        DefaultGradleProject gradleProject = buildAll(project);
+        addModels(gradleProject, models);
+    }
+
+    private void addModels(PartialGradleProject gradleProject, Map<String, Object> models) {
+        models.put(gradleProject.getPath(), gradleProject);
+        for (PartialGradleProject childProject : gradleProject.getChildren()) {
+            addModels(childProject, models);
+        }
     }
 
     private DefaultGradleProject<LaunchableGradleTask> buildHierarchy(Project project) {
@@ -77,18 +89,13 @@ public class GradleProjectBuilder implements ToolingModelBuilder {
     }
 
     private static List<LaunchableGradleTask> tasks(DefaultGradleProject owner, TaskContainerInternal tasks) {
-        List<LaunchableGradleTask> out = new LinkedList<LaunchableGradleTask>();
-        for (String taskName : tasks.getNames()) {
+        tasks.discoverTasks();
+        SortedSet<String> taskNames = tasks.getNames();
+        List<LaunchableGradleTask> out = new ArrayList<LaunchableGradleTask>(taskNames.size());
+        for (String taskName : taskNames) {
             Task t = tasks.findByName(taskName);
             if (t != null) {
-                out.add(new LaunchableGradleProjectTask()
-                                .setProject(owner)
-                                .setPath(t.getPath())
-                                .setName(t.getName())
-                                .setDisplayName(t.toString())
-                                .setDescription(t.getDescription())
-                                .setPublic(PublicTaskSpecification.INSTANCE.isSatisfiedBy(t))
-                );
+                out.add(buildFromTask(new LaunchableGradleProjectTask(), t).setProject(owner));
             }
         }
 

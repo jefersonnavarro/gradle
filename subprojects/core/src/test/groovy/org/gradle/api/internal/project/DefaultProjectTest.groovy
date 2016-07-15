@@ -17,7 +17,17 @@
 package org.gradle.api.internal.project
 
 import org.apache.tools.ant.types.FileSet
-import org.gradle.api.*
+import org.gradle.api.Action
+import org.gradle.api.AntBuilder
+import org.gradle.api.CircularReferenceException
+import org.gradle.api.DefaultTask
+import org.gradle.api.InvalidUserDataException
+import org.gradle.api.NamedDomainObjectFactory
+import org.gradle.api.Project
+import org.gradle.api.ProjectEvaluationListener
+import org.gradle.api.ProjectState
+import org.gradle.api.Task
+import org.gradle.api.UnknownProjectException
 import org.gradle.api.artifacts.ConfigurationContainer
 import org.gradle.api.artifacts.dsl.ArtifactHandler
 import org.gradle.api.artifacts.dsl.ComponentMetadataHandler
@@ -25,8 +35,11 @@ import org.gradle.api.artifacts.dsl.DependencyHandler
 import org.gradle.api.artifacts.dsl.RepositoryHandler
 import org.gradle.api.component.SoftwareComponentContainer
 import org.gradle.api.initialization.dsl.ScriptHandler
-import org.gradle.api.internal.*
-import org.gradle.api.internal.artifacts.ModuleInternal
+import org.gradle.api.internal.AsmBackedClassGenerator
+import org.gradle.api.internal.FactoryNamedDomainObjectContainer
+import org.gradle.api.internal.GradleInternal
+import org.gradle.api.internal.ProcessOperations
+import org.gradle.api.internal.artifacts.Module
 import org.gradle.api.internal.artifacts.ProjectBackedModule
 import org.gradle.api.internal.artifacts.configurations.DependencyMetaDataProvider
 import org.gradle.api.internal.file.FileOperations
@@ -36,6 +49,8 @@ import org.gradle.api.internal.initialization.RootClassLoaderScope
 import org.gradle.api.internal.initialization.ScriptHandlerFactory
 import org.gradle.api.internal.initialization.loadercache.DummyClassLoaderCache
 import org.gradle.api.internal.plugins.PluginManagerInternal
+import org.gradle.api.internal.project.ant.AntLoggingAdapter
+import org.gradle.api.internal.project.taskfactory.ITaskFactory
 import org.gradle.api.internal.tasks.TaskContainerInternal
 import org.gradle.api.invocation.Gradle
 import org.gradle.api.plugins.PluginContainer
@@ -44,17 +59,24 @@ import org.gradle.configuration.project.ProjectConfigurationActionContainer
 import org.gradle.configuration.project.ProjectEvaluator
 import org.gradle.groovy.scripts.EmptyScript
 import org.gradle.groovy.scripts.ScriptSource
+import org.gradle.initialization.ProjectAccessListener
 import org.gradle.internal.Factory
+import org.gradle.internal.logging.LoggingManagerInternal
+import org.gradle.internal.metaobject.BeanDynamicObject
 import org.gradle.internal.reflect.Instantiator
+import org.gradle.internal.resource.StringTextResource
 import org.gradle.internal.service.ServiceRegistry
 import org.gradle.internal.service.scopes.ServiceRegistryFactory
-import org.gradle.logging.LoggingManagerInternal
+import org.gradle.model.internal.manage.instance.ManagedProxyFactory
+import org.gradle.model.internal.manage.schema.ModelSchemaStore
 import org.gradle.model.internal.registry.ModelRegistry
+import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.gradle.util.JUnit4GroovyMockery
 import org.gradle.util.TestClosure
 import org.gradle.util.TestUtil
 import org.jmock.integration.junit4.JMock
 import org.junit.Before
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -70,6 +92,8 @@ class DefaultProjectTest {
     JUnit4GroovyMockery context = new JUnit4GroovyMockery()
 
     static final String TEST_BUILD_FILE_NAME = 'build.gradle'
+    @Rule
+    public TestNameTestDirectoryProvider temporaryFolder = new TestNameTestDirectoryProvider()
 
     Task testTask;
 
@@ -106,30 +130,34 @@ class DefaultProjectTest {
     ProjectConfigurationActionContainer configureActions = context.mock(ProjectConfigurationActionContainer.class)
     PluginManagerInternal pluginManager = context.mock(PluginManagerInternal.class)
     PluginContainer pluginContainer = context.mock(PluginContainer.class)
+    ManagedProxyFactory managedProxyFactory = context.mock(ManagedProxyFactory.class)
+    AntLoggingAdapter antLoggingAdapter = context.mock(AntLoggingAdapter.class)
 
     ClassLoaderScope baseClassLoaderScope = new RootClassLoaderScope(getClass().classLoader, getClass().classLoader, new DummyClassLoaderCache())
-    ClassLoaderScope rootProjectClassLoaderScope = baseClassLoaderScope.createChild()
+    ClassLoaderScope rootProjectClassLoaderScope = baseClassLoaderScope.createChild("root-project")
 
     @Before
     void setUp() {
         rootDir = new File("/path/root").absoluteFile
 
-        testAntBuilder = new DefaultAntBuilder()
+        testAntBuilder = new DefaultAntBuilder(null, antLoggingAdapter)
+
         context.checking {
             allowing(antBuilderFactoryMock).create(); will(returnValue(testAntBuilder))
             allowing(script).getDisplayName(); will(returnValue('[build file]'))
             allowing(script).getClassName(); will(returnValue('scriptClass'))
+            allowing(script).getResource(); will(returnValue(new StringTextResource("", "")))
             allowing(scriptHandlerMock).getSourceFile(); will(returnValue(new File(rootDir, TEST_BUILD_FILE_NAME)))
         }
 
         testScript = new EmptyScript()
 
-        testTask = TestUtil.createTask(DefaultTask)
+        testTask = TestUtil.create(temporaryFolder).task(DefaultTask)
 
         projectRegistry = new DefaultProjectRegistry()
 
-        projectServiceRegistryFactoryMock = context.mock(ServiceRegistryFactory.class, 'parent')
-        serviceRegistryMock = context.mock(ServiceRegistry.class, 'project')
+        projectServiceRegistryFactoryMock = context.mock(ServiceRegistryFactory.class, 'serviceRegistryFactory')
+        serviceRegistryMock = context.mock(ServiceRegistry.class, 'serviceRegistry')
 
         context.checking {
             allowing(projectServiceRegistryFactoryMock).createFor(withParam(notNullValue())); will(returnValue(serviceRegistryMock))
@@ -157,11 +185,25 @@ class DefaultProjectTest {
             allowing(serviceRegistryMock).get((Type) ScriptHandlerFactory); will(returnValue([toString: { -> "script plugin factory" }] as ScriptHandlerFactory))
             allowing(serviceRegistryMock).get((Type) ProjectConfigurationActionContainer); will(returnValue(configureActions))
             allowing(serviceRegistryMock).get((Type) PluginManagerInternal); will(returnValue(pluginManager))
+            allowing(serviceRegistryMock).get(ManagedProxyFactory); will(returnValue(managedProxyFactory))
             allowing(pluginManager).getPluginContainer(); will(returnValue(pluginContainer))
+
+            allowing(serviceRegistryMock).get((Type) DeferredProjectConfiguration); will(returnValue(context.mock(DeferredProjectConfiguration)))
+            allowing(serviceRegistryMock).get((Type) ProjectAccessListener); will(returnValue(context.mock(ProjectAccessListener)))
+
+            ITaskFactory taskFactoryMock = context.mock(ITaskFactory)
+            allowing(serviceRegistryMock).get(ITaskFactory); will(returnValue(taskFactoryMock))
+
             ModelRegistry modelRegistry = context.mock(ModelRegistry)
             ignoring(modelRegistry)
             allowing(serviceRegistryMock).get((Type) ModelRegistry); will(returnValue(modelRegistry))
             allowing(serviceRegistryMock).get(ModelRegistry); will(returnValue(modelRegistry))
+
+            ModelSchemaStore modelSchemaStore = context.mock(ModelSchemaStore)
+            ignoring(modelSchemaStore)
+            allowing(serviceRegistryMock).get((Type) ModelSchemaStore); will(returnValue(modelSchemaStore))
+            allowing(serviceRegistryMock).get(ModelSchemaStore); will(returnValue(modelSchemaStore))
+
             Object listener = context.mock(ProjectEvaluationListener)
             ignoring(listener)
             allowing(build).getProjectEvaluationBroadcaster();
@@ -170,12 +212,12 @@ class DefaultProjectTest {
 
         AsmBackedClassGenerator classGenerator = new AsmBackedClassGenerator()
         project = classGenerator.newInstance(DefaultProject.class, 'root', null, rootDir, script, build, projectServiceRegistryFactoryMock, rootProjectClassLoaderScope, baseClassLoaderScope);
-        def child1ClassLoaderScope = rootProjectClassLoaderScope.createChild()
+        def child1ClassLoaderScope = rootProjectClassLoaderScope.createChild("project-child1")
         child1 = classGenerator.newInstance(DefaultProject.class, "child1", project, new File("child1"), script, build, projectServiceRegistryFactoryMock, child1ClassLoaderScope, baseClassLoaderScope)
         project.addChildProject(child1)
-        childchild = classGenerator.newInstance(DefaultProject.class, "childchild", child1, new File("childchild"), script, build, projectServiceRegistryFactoryMock, child1ClassLoaderScope.createChild(), baseClassLoaderScope.createChild())
+        childchild = classGenerator.newInstance(DefaultProject.class, "childchild", child1, new File("childchild"), script, build, projectServiceRegistryFactoryMock, child1ClassLoaderScope.createChild("project-childchild"), baseClassLoaderScope)
         child1.addChildProject(childchild)
-        child2 = classGenerator.newInstance(DefaultProject.class, "child2", project, new File("child2"), script, build, projectServiceRegistryFactoryMock, rootProjectClassLoaderScope.createChild(), baseClassLoaderScope.createChild())
+        child2 = classGenerator.newInstance(DefaultProject.class, "child2", project, new File("child2"), script, build, projectServiceRegistryFactoryMock, rootProjectClassLoaderScope.createChild("project-child2"), baseClassLoaderScope)
         project.addChildProject(child2)
         [project, child1, childchild, child2].each {
             projectRegistry.addProject(it)
@@ -183,7 +225,7 @@ class DefaultProjectTest {
     }
 
     Type getProjectRegistryType() {
-        return AbstractProject.class.getDeclaredMethod("getProjectRegistry").getGenericReturnType()
+        return DefaultProject.class.getDeclaredMethod("getProjectRegistry").getGenericReturnType()
     }
 
     //TODO please move more coverage to NewDefaultProjectTest
@@ -312,10 +354,10 @@ class DefaultProjectTest {
             testScript
         }] as ProjectEvaluator
         final ProjectEvaluator mockReader2 = [
-                evaluate: { DefaultProject project, state ->
-                    mockReader2Finished = true
-                    testScript
-                }] as ProjectEvaluator
+            evaluate: { DefaultProject project, state ->
+                mockReader2Finished = true
+                testScript
+            }] as ProjectEvaluator
         project.projectEvaluator = mockReader1
         child1.projectEvaluator = mockReader2
         project.evaluate()
@@ -336,15 +378,15 @@ class DefaultProjectTest {
             testScript
         }] as ProjectEvaluator
         final ProjectEvaluator mockReader2 = [
-                evaluate: { DefaultProject project, state ->
-                    child1MockReaderFinished = true
-                    testScript
-                }] as ProjectEvaluator
+            evaluate: { DefaultProject project, state ->
+                child1MockReaderFinished = true
+                testScript
+            }] as ProjectEvaluator
         final ProjectEvaluator mockReader3 = [
-                evaluate: { DefaultProject project, state ->
-                    child2MockReaderFinished = true
-                    testScript
-                }] as ProjectEvaluator
+            evaluate: { DefaultProject project, state ->
+                child2MockReaderFinished = true
+                testScript
+            }] as ProjectEvaluator
         project.projectEvaluator = mockReader1
         child1.projectEvaluator = mockReader2
         child2.projectEvaluator = mockReader3
@@ -421,7 +463,7 @@ class DefaultProjectTest {
         project.unknownTask
     }
 
-    @Test(expected = MissingMethodException)
+    @Test(expected = groovy.lang.MissingMethodException)
     void testMethodShortCutForTaskCallWithNonExistingTask() {
         project.unknownTask([dependsOn: '/task2'])
     }
@@ -582,6 +624,13 @@ def scriptMethod(Closure closure) {
         assert project.hasProperty('nullProp')
     }
 
+    @Test
+    void testFindProperty() {
+        project.ext.someProp = "somePropValue"
+        assert project.findProperty('someProp') == "somePropValue"
+        assertNull(project.findProperty("someNonExistingProp"))
+    }
+
     @Test(expected = MissingPropertyException)
     public void testPropertyMissingWithUnknownProperty() {
         project.unknownProperty
@@ -603,7 +652,7 @@ def scriptMethod(Closure closure) {
     @Test
     void testProperties() {
         context.checking {
-            allowing(dependencyMetaDataProviderMock).getModule(); will(returnValue({} as ModuleInternal))
+            allowing(dependencyMetaDataProviderMock).getModule(); will(returnValue({} as Module))
             ignoring(fileOperationsMock)
             ignoring(taskContainerMock)
             allowing(serviceRegistryMock).get(ServiceRegistryFactory); will(returnValue({} as ServiceRegistryFactory))
@@ -657,7 +706,7 @@ def scriptMethod(Closure closure) {
     void testBuildDir() {
         File dir = new File(rootDir, 'dir')
         context.checking {
-            one(fileOperationsMock).file(Project.DEFAULT_BUILD_DIR_NAME)
+            allowing(fileOperationsMock).file(Project.DEFAULT_BUILD_DIR_NAME)
             will(returnValue(dir))
         }
         assertEquals(dir, child1.buildDir)
@@ -737,14 +786,14 @@ def scriptMethod(Closure closure) {
         String propValue = 'someValue'
         if (configureMethod == 'configure') {
             project."$configureMethod" projectsToCheck as java.util.List,
-                    {
-                        ext.testSubProp = propValue
-                    }
+                {
+                    ext.testSubProp = propValue
+                }
         } else {
             project."$configureMethod"(
-                    {
-                        ext.testSubProp = propValue
-                    })
+                {
+                    ext.testSubProp = propValue
+                })
         }
 
         projectsToCheck.each {
@@ -761,14 +810,19 @@ def scriptMethod(Closure closure) {
         assertEquals(expectedPoint, actualPoint)
     }
 
-    @Test(expected = ReadOnlyPropertyException)
+    @Test()
     void setName() {
-        project.name = "someNewName"
+        try {
+            project.name = "someNewName"
+            fail()
+        } catch (GroovyRuntimeException e) {
+            assertThat(e.message, equalTo("Cannot set the value of read-only property 'name' for root project 'root' of type ${Project.name}." as String))
+        }
     }
 
     @Test
     void testGetModule() {
-        ModuleInternal moduleDummyResolve = new ProjectBackedModule(project)
+        Module moduleDummyResolve = new ProjectBackedModule(project)
         context.checking {
             allowing(dependencyMetaDataProviderMock).getModule(); will(returnValue(moduleDummyResolve))
         }

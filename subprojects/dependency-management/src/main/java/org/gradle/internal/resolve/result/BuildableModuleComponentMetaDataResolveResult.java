@@ -17,11 +17,11 @@
 package org.gradle.internal.resolve.result;
 
 import org.gradle.api.Nullable;
-import org.gradle.internal.component.external.model.MutableModuleComponentResolveMetaData;
+import org.gradle.internal.component.external.model.MutableModuleComponentResolveMetadata;
 import org.gradle.internal.resolve.ModuleVersionResolveException;
 
 /**
- * The result of attempting to resolve a dependency descriptor to the meta-data for a module version.
+ * The result of attempting to resolve a component id to the meta-data for the component.
  */
 public interface BuildableModuleComponentMetaDataResolveResult extends ResourceAwareResolveResult, ResolveResult {
     static enum State {
@@ -43,7 +43,7 @@ public interface BuildableModuleComponentMetaDataResolveResult extends ResourceA
      *
      * @throws ModuleVersionResolveException If the resolution was not successful.
      */
-    MutableModuleComponentResolveMetaData getMetaData() throws ModuleVersionResolveException;
+    MutableModuleComponentResolveMetadata getMetaData() throws ModuleVersionResolveException;
 
     @Nullable
     ModuleVersionResolveException getFailure();
@@ -51,7 +51,7 @@ public interface BuildableModuleComponentMetaDataResolveResult extends ResourceA
     /**
      * Marks the module version as resolved, with the given meta-data and source.
      */
-    void resolved(MutableModuleComponentResolveMetaData metaData);
+    void resolved(MutableModuleComponentResolveMetadata metaData);
 
     /**
      * Marks the resolve as failed with the given exception.

@@ -16,7 +16,6 @@
 package org.gradle.gradleplugin.foundation;
 
 import org.codehaus.groovy.runtime.StackTraceUtils;
-import org.gradle.api.internal.classpath.DefaultModuleRegistry;
 import org.gradle.api.internal.project.ProjectInternal;
 import org.gradle.api.logging.LogLevel;
 import org.gradle.api.logging.Logger;
@@ -34,7 +33,9 @@ import org.gradle.gradleplugin.foundation.request.RefreshTaskListRequest;
 import org.gradle.gradleplugin.foundation.request.Request;
 import org.gradle.internal.SystemProperties;
 import org.gradle.internal.exceptions.LocationAwareException;
-import org.gradle.logging.ShowStacktrace;
+import org.gradle.internal.installation.CurrentGradleInstallation;
+import org.gradle.internal.installation.GradleInstallation;
+import org.gradle.api.logging.configuration.ShowStacktrace;
 import org.gradle.util.GUtil;
 
 import java.io.File;
@@ -126,8 +127,8 @@ public class GradlePluginLord {
     public interface SettingsObserver {
 
         /**
-         * Notification that some settings have changed for the plugin. Settings such as current directory, gradle home directory, etc. This is useful for UIs that need to update their UIs when this is
-         * changed by other means.
+         * Notification that some settings have changed for the plugin. Settings such as current directory, gradle home directory, etc. This is useful for UIs that need to update their UIs when this
+         * is changed by other means.
          */
         public void settingsChanged();
     }
@@ -137,13 +138,14 @@ public class GradlePluginLord {
 
         //create the queue that executes the commands. The contents of this interaction are where we actually launch gradle.
 
-        currentDirectory = SystemProperties.getCurrentDir();
+        currentDirectory = SystemProperties.getInstance().getCurrentDir();
 
         String gradleHomeProperty = System.getProperty("gradle.home");
         if (gradleHomeProperty != null) {
             gradleHomeDirectory = new File(gradleHomeProperty);
         } else {
-            gradleHomeDirectory = new DefaultModuleRegistry().getGradleHome();
+            GradleInstallation gradleInstallation = CurrentGradleInstallation.get();
+            gradleHomeDirectory = gradleInstallation == null ? null : gradleInstallation.getGradleHome();
         }
     }
 

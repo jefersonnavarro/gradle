@@ -18,15 +18,15 @@ package org.gradle.nativeplatform.toolchain
 
 import org.gradle.integtests.fixtures.executer.GradleContextualExecuter
 import org.gradle.nativeplatform.fixtures.AbstractInstalledToolChainIntegrationSpec
+import org.gradle.nativeplatform.fixtures.NativePlatformsTestFixture
 import org.gradle.nativeplatform.fixtures.RequiresInstalledToolChain
 import org.gradle.nativeplatform.fixtures.app.CHelloWorldApp
-import org.gradle.nativeplatform.platform.internal.NativePlatforms
 import org.hamcrest.Matchers
 import spock.lang.IgnoreIf
 
-import static org.gradle.nativeplatform.fixtures.ToolChainRequirement.GccCompatible
+import static org.gradle.nativeplatform.fixtures.ToolChainRequirement.GCC_COMPATIBLE
 
-@RequiresInstalledToolChain(GccCompatible)
+@RequiresInstalledToolChain(GCC_COMPATIBLE)
 class GccToolChainDiscoveryIntegrationTest extends AbstractInstalledToolChainIntegrationSpec {
     def helloWorldApp = new CHelloWorldApp()
 
@@ -69,7 +69,7 @@ model {
         succeeds "mainExecutable"
 
         then:
-        executable("build/binaries/mainExecutable/main").exec().out == helloWorldApp.englishOutput
+        executable("build/exe/main/main").exec().out == helloWorldApp.englishOutput
     }
 
     def "does not break when compiler not available and not building"() {
@@ -115,7 +115,7 @@ model {
 
         then:
         failure.assertHasDescription("Execution failed for task ':compileMainExecutableMainC'.")
-        failure.assertThatCause(Matchers.startsWith("No tool chain is available to build for platform '${NativePlatforms.defaultPlatformName}'"))
+        failure.assertThatCause(Matchers.startsWith("No tool chain is available to build for platform '${NativePlatformsTestFixture.defaultPlatformName}'"))
         failure.assertThatCause(Matchers.containsString("- ${toolChain.instanceDisplayName}: Could not find C compiler 'does-not-exist'"))
     }
 

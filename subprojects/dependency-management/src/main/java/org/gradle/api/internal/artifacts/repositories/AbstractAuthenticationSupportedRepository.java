@@ -15,56 +15,67 @@
  */
 package org.gradle.api.internal.artifacts.repositories;
 
-import groovy.lang.Closure;
 import org.gradle.api.Action;
-import org.gradle.api.artifacts.repositories.AuthenticationSupported;
-import org.gradle.api.artifacts.repositories.AwsCredentials;
+import org.gradle.api.Nullable;
+import org.gradle.api.artifacts.repositories.AuthenticationContainer;
 import org.gradle.api.artifacts.repositories.PasswordCredentials;
-import org.gradle.api.internal.ClosureBackedAction;
 import org.gradle.api.credentials.Credentials;
-import org.gradle.internal.credentials.DefaultAwsCredentials;
+import org.gradle.authentication.Authentication;
+import org.gradle.internal.artifacts.repositories.AuthenticationSupportedInternal;
 import org.gradle.internal.reflect.Instantiator;
 
-public abstract class AbstractAuthenticationSupportedRepository extends AbstractArtifactRepository implements AuthenticationSupported {
-    private Credentials credentials;
-    private final Instantiator instantiator;
+import java.util.Collection;
 
-    AbstractAuthenticationSupportedRepository(Instantiator instantiator) {
-        this.instantiator = instantiator;
+public abstract class AbstractAuthenticationSupportedRepository extends AbstractArtifactRepository implements AuthenticationSupportedInternal {
+    private final AuthenticationSupporter delegate;
+
+    AbstractAuthenticationSupportedRepository(Instantiator instantiator, AuthenticationContainer authenticationContainer) {
+        this.delegate = new AuthenticationSupporter(instantiator, authenticationContainer);
     }
 
+    @Override
     public PasswordCredentials getCredentials() {
-        if(credentials != null && !(credentials instanceof PasswordCredentials)) {
-            throw new IllegalStateException(String.format("Requested credentials must be of type '%s'.", PasswordCredentials.class.getName()));
-        }
-        return (PasswordCredentials) credentials;
+        return delegate.getCredentials();
     }
 
-    public void credentials(Closure closure) {
-        credentials(new ClosureBackedAction<PasswordCredentials>(closure));
+    @Override
+    public <T extends Credentials> T getCredentials(Class<T> credentialsType) {
+        return delegate.getCredentials(credentialsType);
     }
 
+    @Nullable
+    @Override
+    public Credentials getConfiguredCredentials() {
+        return delegate.getConfiguredCredentials();
+    }
+
+    @Override
+    public void setConfiguredCredentials(Credentials credentials) {
+        delegate.setConfiguredCredentials(credentials);
+    }
+
+    @Override
     public void credentials(Action<? super PasswordCredentials> action) {
-        if (credentials != null) {
-            throw new IllegalStateException("Cannot overwrite already configured credentials.");
-        }
-        credentials = instantiator.newInstance(DefaultPasswordCredentials.class);
-        action.execute((PasswordCredentials)credentials);
+        delegate.credentials(action);
     }
 
-    public <T extends Credentials> void credentials(Class<T> clazz, Action<? super T> action) throws IllegalStateException {
-        if(credentials != null) {
-            throw new IllegalStateException("Cannot overwrite already configured credentials.");
-        }
-        if (clazz == AwsCredentials.class) {
-            credentials = instantiator.newInstance(DefaultAwsCredentials.class);
-        } else if (clazz == PasswordCredentials.class) {
-            credentials= instantiator.newInstance(DefaultPasswordCredentials.class);
-        }
-        action.execute((T) credentials);
+    @Override
+    public <T extends Credentials> void credentials(Class<T> credentialsType, Action<? super T> action) throws IllegalStateException {
+        delegate.credentials(credentialsType, action);
     }
 
-    public Credentials getAlternativeCredentials() {
-        return credentials;
+    @Override
+    public void authentication(Action<? super AuthenticationContainer> action) {
+        delegate.authentication(action);
+    }
+
+    @Override
+    public AuthenticationContainer getAuthentication() {
+        return delegate.getAuthentication();
+    }
+
+    @Override
+    public Collection<Authentication> getConfiguredAuthentication() {
+        return delegate.getConfiguredAuthentication();
     }
 }

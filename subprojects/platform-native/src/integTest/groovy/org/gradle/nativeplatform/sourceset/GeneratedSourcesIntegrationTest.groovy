@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 package org.gradle.nativeplatform.sourceset
+
 import org.apache.commons.io.FileUtils
 import org.gradle.ide.visualstudio.fixtures.ProjectFile
 import org.gradle.ide.visualstudio.fixtures.SolutionFile
@@ -24,8 +25,8 @@ import org.gradle.nativeplatform.fixtures.app.CppHelloWorldApp
 import org.gradle.nativeplatform.fixtures.app.MixedLanguageHelloWorldApp
 import org.gradle.nativeplatform.fixtures.app.WindowsResourceHelloWorldApp
 
-import static org.gradle.nativeplatform.fixtures.ToolChainRequirement.VisualCpp
-// TODO:DAZ Test incremental
+import static org.gradle.nativeplatform.fixtures.ToolChainRequirement.VISUALCPP
+// TODO: Test incremental
 class GeneratedSourcesIntegrationTest extends AbstractInstalledToolChainIntegrationSpec {
 
     def setup() {
@@ -108,7 +109,7 @@ model {
         }
         main(NativeExecutableSpec) {
             sources {
-                c.lib comp.headersOnly.sources.c
+                c.lib \$.components.headersOnly.sources.c
             }
         }
     }
@@ -198,7 +199,9 @@ model {
     components {
         main(NativeExecutableSpec) {
             sources {
-                c.lib library: 'hello', linkage: 'api'
+                c {
+                lib library: 'hello', linkage: 'api'
+                }
             }
         }
         hello(NativeLibrarySpec) {
@@ -281,7 +284,7 @@ model {
         executableBuilt(app)
     }
 
-    @RequiresInstalledToolChain(VisualCpp)
+    @RequiresInstalledToolChain(VISUALCPP)
     def "generator task produces windows resources"() {
         given:
         def app = new WindowsResourceHelloWorldApp()
@@ -338,8 +341,8 @@ model {
         fails "mainExecutable"
 
         then:
-        failure.assertHasCause "Exception thrown while executing model rule: org.gradle.nativeplatform.plugins.NativeComponentModelPlugin\$Rules#configureGeneratedSourceSets("
-        failure.assertHasCause "Could not find property 'sourceDir' on task ':generateSources'."
+        failure.assertHasCause "Exception thrown while executing model rule: NativeComponentModelPlugin.Rules#configureGeneratedSourceSets"
+        failure.assertHasCause "Could not get unknown property 'sourceDir' for task ':generateSources' of type org.gradle.api.DefaultTask."
     }
 
     def "can explicitly configure source and header directories from generator task"() {
@@ -445,7 +448,7 @@ model {
                 "build/src/generated/c/main.c",
                 "build/src/generated/c/sum.c"
         ] as Set
-        projectFile.headerFiles == [ "build/src/generated/headers/hello.h" ]
+        projectFile.headerFiles.sort() == [ "build/src/generated/headers/common.h", "build/src/generated/headers/hello.h" ]
         projectFile.projectConfigurations.keySet() == ['debug'] as Set
         with (projectFile.projectConfigurations['debug']) {
             // TODO - should not include the default location
@@ -455,7 +458,7 @@ model {
 
     def executableBuilt(def app) {
         succeeds "mainExecutable"
-        assert executable("build/binaries/mainExecutable/main").exec().out == app.englishOutput
+        assert executable("build/exe/main/main").exec().out == app.englishOutput
         true
     }
 }

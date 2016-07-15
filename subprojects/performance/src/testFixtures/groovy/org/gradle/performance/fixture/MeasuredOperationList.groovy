@@ -41,12 +41,20 @@ public class MeasuredOperationList extends LinkedList<MeasuredOperation> {
         return new DataSeries<DataAmount>(this.collect { it.maxCommittedHeap })
     }
 
+    DataSeries<Duration> getTotalTime() {
+        return new DataSeries<Duration>(this.collect { it.totalTime })
+    }
+
+    DataSeries<Duration> getConfigurationTime() {
+        return new DataSeries<Duration>(this.collect { it.configurationTime })
+    }
+
     DataSeries<Duration> getExecutionTime() {
         return new DataSeries<Duration>(this.collect { it.executionTime })
     }
 
     String getSpeedStats() {
-        format(executionTime)
+        format(totalTime)
     }
 
     String getMemoryStats() {
@@ -54,8 +62,8 @@ public class MeasuredOperationList extends LinkedList<MeasuredOperation> {
     }
 
     private String format(DataSeries<?> measurement) {
-        """  ${name} avg: ${measurement.average.format()} ${measurement.collect { it.format() }}
-  > min: ${measurement.min.format()}, max: ${measurement.max.format()}
+        """  ${name} avg: ${measurement.average.format()} min: ${measurement.min.format()}, max: ${measurement.max.format()}, stddev: ${measurement.stddev.format()}
+  > ${measurement.collect { it.format() }}
 """
 
     }

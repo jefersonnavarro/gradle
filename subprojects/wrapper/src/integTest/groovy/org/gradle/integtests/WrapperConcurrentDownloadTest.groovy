@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 package org.gradle.integtests
-
 import org.apache.commons.io.IOUtils
-import org.gradle.integtests.fixtures.AbstractIntegrationSpec
 import org.gradle.test.fixtures.file.TestFile
 import org.junit.Rule
 import org.junit.rules.ExternalResource
@@ -30,26 +28,16 @@ import javax.servlet.ServletException
 import javax.servlet.http.HttpServletRequest
 import javax.servlet.http.HttpServletResponse
 
-class WrapperConcurrentDownloadTest extends AbstractIntegrationSpec {
+class WrapperConcurrentDownloadTest extends AbstractWrapperIntegrationSpec {
     @Rule BlockingDownloadHttpServer server = new BlockingDownloadHttpServer(distribution.binDistribution)
-
-    def setup() {
-        executer.beforeExecute(new WrapperSetup())
-    }
 
     @Issue("https://issues.gradle.org/browse/GRADLE-2699")
     def "concurrent downloads do not stomp over each other"() {
         given:
-        buildFile << """
-    wrapper {
-        distributionUrl = '${server.distUri}'
-    }
-"""
-
-        succeeds('wrapper')
+        prepareWrapper(server.distUri)
 
         when:
-        def results = [1..4].collect { executer.usingExecutable("gradlew").start() }*.waitForFinish()
+        def results = [1..4].collect { wrapperExecuter.start() }*.waitForFinish()
 
         then:
         results.findAll { it.output.contains("Downloading") }.size() == 1

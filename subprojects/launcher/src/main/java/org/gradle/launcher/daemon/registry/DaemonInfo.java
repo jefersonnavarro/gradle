@@ -16,31 +16,49 @@
 
 package org.gradle.launcher.daemon.registry;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import org.gradle.internal.TimeProvider;
+import org.gradle.internal.TrueTimeProvider;
+import org.gradle.internal.remote.Address;
+import org.gradle.launcher.daemon.context.DaemonConnectDetails;
 import org.gradle.launcher.daemon.context.DaemonContext;
-import org.gradle.launcher.daemon.context.DaemonInstanceDetails;
-import org.gradle.messaging.remote.Address;
 
 import java.io.Serializable;
+import java.util.Date;
 
 /**
  * Provides information about a daemon that is potentially available to do some work.
  */
-public class DaemonInfo implements Serializable, DaemonInstanceDetails {
+public class DaemonInfo implements Serializable, DaemonConnectDetails {
 
     private final Address address;
     private final DaemonContext context;
-    private final String password;
-    private boolean idle;
+    private final byte[] token;
+    private final TimeProvider timeProvider;
 
-    public DaemonInfo(Address address, DaemonContext context, String password, boolean idle) {
-        this.address = address;
-        this.context = context;
-        this.password = password;
-        this.idle = idle;
+    private boolean idle;
+    private long lastBusy;
+
+    public DaemonInfo(Address address, DaemonContext context, byte[] token, boolean idle) {
+        this(address, context, token, idle, new TrueTimeProvider());
+    }
+
+    @VisibleForTesting
+    DaemonInfo(Address address, DaemonContext context, byte[] token, boolean idle, TimeProvider busyClock) {
+        this.address = Preconditions.checkNotNull(address);
+        this.context = Preconditions.checkNotNull(context);
+        this.token = Preconditions.checkNotNull(token);
+        this.timeProvider = Preconditions.checkNotNull(busyClock);
+        this.lastBusy = -1; // Will be overwritten by setIdle if not idle.
+        setIdle(idle);
     }
 
     public DaemonInfo setIdle(boolean idle) {
         this.idle = idle;
+        if (!idle) {
+            lastBusy = timeProvider.getCurrentTime();
+        }
         return this;
     }
 
@@ -64,13 +82,18 @@ public class DaemonInfo implements Serializable, DaemonInstanceDetails {
         return idle;
     }
 
-    public String getPassword() {
-        return password;
+    public byte[] getToken() {
+        return token;
+    }
+
+    /** Last time the daemon was brought out of idle mode. */
+    public Date getLastBusy() {
+        return new Date(lastBusy);
     }
 
     @Override
     public String toString() {
-        return String.format("DaemonInfo{pid=%s, address=%s, idle=%s, context=%s}", context.getPid(), address, idle, context);
+        return String.format("DaemonInfo{pid=%s, address=%s, idle=%s, lastBusy=%s, context=%s}", context.getPid(), address, idle, lastBusy, context);
     }
 
 }

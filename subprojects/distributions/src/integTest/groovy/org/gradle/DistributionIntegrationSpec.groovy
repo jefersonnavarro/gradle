@@ -38,18 +38,53 @@ abstract class DistributionIntegrationSpec extends AbstractIntegrationSpec {
 
     abstract String getDistributionLabel()
 
+    int getLibJarsCount() {
+        165
+    }
+
     def "no duplicate entries"() {
         given:
-        ZipFile zipFile = new ZipFile(zip)
+        def entriesByPath = zipEntries.findAll { !it.name.contains('/META-INF/services/') }.groupBy { it.name }
+        def dupes = entriesByPath.findAll { it.value.size() > 1 }
 
         when:
-        def entries = zipFile.entries().toList()
-        def entriesByPath = entries.groupBy { ZipEntry zipEntry -> zipEntry.name }
-        def dupes = entriesByPath.findAll { it.value.size() > 1 && !it.key.contains('/META-INF/services/') }
         def dupesWithCount = dupes.collectEntries { [it.key, it.value.size()]}
 
         then:
         dupesWithCount.isEmpty()
+    }
+
+    def "all files under lib directory are jars"() {
+        when:
+        def nonJarLibEntries = libZipEntries.findAll { !it.name.endsWith(".jar") }
+
+        then:
+        nonJarLibEntries.isEmpty()
+    }
+
+    def "no additional jars are added to the distribution"() {
+        when:
+        def jarLibEntries = libZipEntries.findAll { it.name.endsWith(".jar") }
+
+        then:
+        //ME: This is not a foolproof way of checking that additional jars have not been accidentally added to the distribution
+        //but should be good enough. If this test fails for you and you did not intend to add new jars to the distribution
+        //then there is something to be fixed. If you intentionally added new jars to the distribution and this is now failing please
+        //accept my sincere apologies that you have to manually bump the numbers here.
+        jarLibEntries.size() == libJarsCount
+    }
+
+    protected List<? extends ZipEntry> getLibZipEntries() {
+        zipEntries.findAll { !it.isDirectory() && it.name.tokenize("/")[1] == "lib" }
+    }
+
+    protected List<? extends ZipEntry> getZipEntries() {
+        ZipFile zipFile = new ZipFile(zip)
+        try {
+            zipFile.entries().toList()
+        } finally {
+            zipFile.close()
+        }
     }
 
     protected TestFile unpackDistribution(type = getDistributionLabel()) {
@@ -75,13 +110,15 @@ abstract class DistributionIntegrationSpec extends AbstractIntegrationSpec {
         contentsDir.file('LICENSE').assertIsFile()
 
         // Core libs
-        def coreLibs = contentsDir.file("lib").listFiles().findAll { it.name.startsWith("gradle-") }
-        assert coreLibs.size() == 15
+        def coreLibs = contentsDir.file("lib").listFiles().findAll {
+            it.name.startsWith("gradle-") && !it.name.startsWith("gradle-script-kotlin")
+        }
+        assert coreLibs.size() == 19
         coreLibs.each { assertIsGradleJar(it) }
 
         def toolingApiJar = contentsDir.file("lib/gradle-tooling-api-${version}.jar")
         toolingApiJar.assertIsFile()
-        assert toolingApiJar.length() < 220 * 1024; // tooling api jar is the small plain tooling api jar version and not the fat jar.
+        assert toolingApiJar.length() < 500 * 1024; // tooling api jar is the small plain tooling api jar version and not the fat jar.
 
         // Plugins
         assertIsGradleJar(contentsDir.file("lib/plugins/gradle-dependency-management-${version}.jar"))
@@ -92,7 +129,6 @@ abstract class DistributionIntegrationSpec extends AbstractIntegrationSpec {
         assertIsGradleJar(contentsDir.file("lib/plugins/gradle-antlr-${version}.jar"))
         assertIsGradleJar(contentsDir.file("lib/plugins/gradle-announce-${version}.jar"))
         assertIsGradleJar(contentsDir.file("lib/plugins/gradle-jetty-${version}.jar"))
-        assertIsGradleJar(contentsDir.file("lib/plugins/gradle-sonar-${version}.jar"))
         assertIsGradleJar(contentsDir.file("lib/plugins/gradle-maven-${version}.jar"))
         assertIsGradleJar(contentsDir.file("lib/plugins/gradle-osgi-${version}.jar"))
         assertIsGradleJar(contentsDir.file("lib/plugins/gradle-signing-${version}.jar"))

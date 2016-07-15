@@ -29,7 +29,7 @@ import org.gradle.internal.resolve.ModuleVersionResolveException;
 import org.gradle.internal.resolve.result.BuildableArtifactResolveResult;
 import org.gradle.internal.resolve.result.BuildableArtifactSetResolveResult;
 import org.gradle.internal.resolve.result.BuildableModuleComponentMetaDataResolveResult;
-import org.gradle.internal.resolve.result.BuildableModuleComponentVersionSelectionResolveResult;
+import org.gradle.internal.resolve.result.BuildableModuleVersionListingResolveResult;
 
 import java.util.concurrent.TimeUnit;
 
@@ -98,23 +98,28 @@ public class StartParameterResolutionOverride {
     }
 
     private static class FailedRemoteAccess implements ModuleComponentRepositoryAccess {
-        public void listModuleVersions(DependencyMetaData dependency, BuildableModuleComponentVersionSelectionResolveResult result) {
-            result.failed(new ModuleVersionResolveException(dependency.getRequested(), "No cached version listing for %s available for offline mode."));
+        @Override
+        public String toString() {
+            return "offline remote";
         }
 
-        public void resolveComponentMetaData(DependencyMetaData dependency, ModuleComponentIdentifier moduleComponentIdentifier, BuildableModuleComponentMetaDataResolveResult result) {
-            result.failed(new ModuleVersionResolveException(moduleComponentIdentifier, "No cached version of %s available for offline mode."));
+        public void listModuleVersions(DependencyMetadata dependency, BuildableModuleVersionListingResolveResult result) {
+            result.failed(new ModuleVersionResolveException(dependency.getRequested(), String.format("No cached version listing for %s available for offline mode.", dependency.getRequested())));
         }
 
-        public void resolveModuleArtifacts(ComponentResolveMetaData component, ArtifactType artifactType, BuildableArtifactSetResolveResult result) {
+        public void resolveComponentMetaData(ModuleComponentIdentifier moduleComponentIdentifier, ComponentOverrideMetadata requestMetaData, BuildableModuleComponentMetaDataResolveResult result) {
+            result.failed(new ModuleVersionResolveException(moduleComponentIdentifier, String.format("No cached version of %s available for offline mode.", moduleComponentIdentifier.getDisplayName())));
+        }
+
+        public void resolveModuleArtifacts(ComponentResolveMetadata component, ArtifactType artifactType, BuildableArtifactSetResolveResult result) {
             result.failed(new ArtifactResolveException(component.getComponentId(), "No cached version available for offline mode"));
         }
 
-        public void resolveModuleArtifacts(ComponentResolveMetaData component, ComponentUsage componentUsage, BuildableArtifactSetResolveResult result) {
+        public void resolveModuleArtifacts(ComponentResolveMetadata component, ComponentUsage componentUsage, BuildableArtifactSetResolveResult result) {
             result.failed(new ArtifactResolveException(component.getComponentId(), "No cached version available for offline mode"));
         }
 
-        public void resolveArtifact(ComponentArtifactMetaData artifact, ModuleSource moduleSource, BuildableArtifactResolveResult result) {
+        public void resolveArtifact(ComponentArtifactMetadata artifact, ModuleSource moduleSource, BuildableArtifactResolveResult result) {
             result.failed(new ArtifactResolveException(artifact.getId(), "No cached version available for offline mode"));
         }
     }

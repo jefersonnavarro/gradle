@@ -16,10 +16,13 @@
 
 package org.gradle.performance
 
+import org.gradle.performance.categories.JavaPerformanceTest
+import org.junit.experimental.categories.Category
 import spock.lang.Unroll
 
 import static org.gradle.performance.measure.Duration.millis
 
+@Category([JavaPerformanceTest])
 class IdeIntegrationPerformanceTest extends AbstractCrossVersionPerformanceTest {
     @Unroll("Project '#testProject' eclipse")
     def "eclipse"() {
@@ -28,7 +31,8 @@ class IdeIntegrationPerformanceTest extends AbstractCrossVersionPerformanceTest 
         runner.testProject = testProject
         runner.tasksToRun = ['eclipse']
         runner.maxExecutionTimeRegression = maxExecutionTimeRegression
-        runner.targetVersions = ['1.0', '1.4', '1.8', '1.12', 'last']
+        runner.targetVersions = targetVersions
+        runner.useDaemon = true
 
         when:
         def result = runner.run()
@@ -37,10 +41,10 @@ class IdeIntegrationPerformanceTest extends AbstractCrossVersionPerformanceTest 
         result.assertCurrentVersionHasNotRegressed()
 
         where:
-        testProject       | maxExecutionTimeRegression
-        "small"           | millis(800)
-        "multi"           | millis(500)
-        "lotDependencies" | millis(500)
+        testProject       | maxExecutionTimeRegression | targetVersions
+        "small"           | millis(800)                | ['2.0', '2.8', 'last']
+        "multi"           | millis(500)                | ['2.8', 'last']
+        "lotDependencies" | millis(500)                | ['2.8', 'last']
     }
 
     @Unroll("Project '#testProject' idea")
@@ -50,7 +54,8 @@ class IdeIntegrationPerformanceTest extends AbstractCrossVersionPerformanceTest 
         runner.testProject = testProject
         runner.tasksToRun = ['idea']
         runner.maxExecutionTimeRegression = maxExecutionTimeRegression
-        runner.targetVersions = ['1.0', '1.8', '1.10', '1.12', 'last']
+        runner.targetVersions = targetVersions
+        runner.useDaemon = true
 
         when:
         def result = runner.run()
@@ -59,9 +64,9 @@ class IdeIntegrationPerformanceTest extends AbstractCrossVersionPerformanceTest 
         result.assertCurrentVersionHasNotRegressed()
 
         where:
-        testProject       | maxExecutionTimeRegression
-        "small"           | millis(800)
-        "multi"           | millis(500)
-        "lotDependencies" | millis(500)
+        testProject       | maxExecutionTimeRegression | targetVersions
+        "small"           | millis(800)                | ['2.0', '2.8', 'last']
+        "multi"           | millis(500)                | ['2.8', 'last']
+        "lotDependencies" | millis(500)                | ['2.8', 'last']
     }
 }

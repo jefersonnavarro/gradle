@@ -44,6 +44,8 @@ public interface IvyModule extends Module {
 
     IvyModule dependsOn(Map<String, ?> attributes);
 
+    IvyModule dependsOn(IvyModule ivyModule);
+
     IvyModule artifact(Map<String, ?> options);
 
     /**
@@ -71,7 +73,19 @@ public interface IvyModule extends Module {
     IvyDescriptor getParsedIvy();
 
     /**
+     * Asserts that an ivy.xml is present
+     */
+    void assertPublished();
+
+    /**
+     * Asserts that exactly the given artifacts, plus checksum files, have been published.
+     */
+    void assertArtifactsPublished(String... names);
+
+    /**
      * Assert that exactly the ivy.xml and jar file for this module, plus checksum files, have been published.
      */
     void assertIvyAndJarFilePublished();
+
+    void assertPublishedAsJavaModule();
 }

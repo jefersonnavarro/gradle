@@ -16,30 +16,50 @@
 
 package org.gradle.performance
 
-import org.gradle.performance.fixture.CrossBuildPerformanceTestRunner
+import groovy.transform.CompileStatic
+import org.gradle.performance.categories.GradleCorePerformanceTest
+import org.gradle.performance.fixture.*
 import org.gradle.performance.results.CrossBuildResultsStore
+import org.gradle.performance.results.ResultsStoreHelper
 import org.gradle.test.fixtures.file.TestNameTestDirectoryProvider
 import org.junit.Rule
+import org.junit.experimental.categories.Category
 import spock.lang.Specification
 
+@Category(GradleCorePerformanceTest)
+@CompileStatic
 class AbstractCrossBuildPerformanceTest extends Specification {
-    @Rule TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
-    static def resultStore = new CrossBuildResultsStore()
+    private static final DataReporter<CrossBuildPerformanceResults> RESULT_STORE = ResultsStoreHelper.maybeUseResultStore { new CrossBuildResultsStore() }
 
-    final def runner = new CrossBuildPerformanceTestRunner(
-            testDirectoryProvider: tmpDir,
-            runs: 5,
-            warmUpRuns: 1
-    )
+    @Rule
+    TestNameTestDirectoryProvider tmpDir = new TestNameTestDirectoryProvider()
 
-    def setup() {
-        runner.reporter = resultStore
+    CrossBuildPerformanceTestRunner runner = new CrossBuildPerformanceTestRunner(new BuildExperimentRunner(new GradleSessionProvider(tmpDir)), RESULT_STORE) {
+        @Override
+        protected void defaultSpec(BuildExperimentSpec.Builder builder) {
+            super.defaultSpec(builder)
+            AbstractCrossBuildPerformanceTest.this.defaultSpec(builder)
+        }
+
+        @Override
+        protected void finalizeSpec(BuildExperimentSpec.Builder builder) {
+            super.finalizeSpec(builder)
+            AbstractCrossBuildPerformanceTest.this.finalizeSpec(builder)
+        }
+    }
+
+    protected void defaultSpec(BuildExperimentSpec.Builder builder) {
+
+    }
+
+    protected void finalizeSpec(BuildExperimentSpec.Builder builder) {
+
     }
 
     static {
         // TODO - find a better way to cleanup
         System.addShutdownHook {
-            resultStore.close()
+            ((Closeable)RESULT_STORE).close()
         }
     }
 }

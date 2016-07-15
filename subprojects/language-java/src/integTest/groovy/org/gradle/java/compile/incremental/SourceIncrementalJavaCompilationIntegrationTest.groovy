@@ -14,10 +14,12 @@
  * limitations under the License.
  */
 
-package org.gradle.java.compile.incremental;
+package org.gradle.java.compile.incremental
 
+import groovy.transform.NotYetImplemented
 import org.gradle.integtests.fixtures.AbstractIntegrationSpec
-import org.gradle.integtests.fixtures.CompilationOutputsFixture;
+import org.gradle.integtests.fixtures.CompilationOutputsFixture
+import spock.lang.Issue
 
 public class SourceIncrementalJavaCompilationIntegrationTest extends AbstractIntegrationSpec {
 
@@ -296,11 +298,11 @@ public class SourceIncrementalJavaCompilationIntegrationTest extends AbstractInt
     }
 
     def "recompiles classes from extra source directories"() {
-        buildFile << "sourceSets.main.java.srcDir 'java'"
+        buildFile << "sourceSets.main.java.srcDir 'extra-java'"
 
         java("class B {}")
-        file("java/A.java") << "class A extends B {}"
-        file("java/C.java") << "class C {}"
+        file("extra-java/A.java") << "class A extends B {}"
+        file("extra-java/C.java") << "class C {}"
 
         outputs.snapshot { run "compileJava" }
 
@@ -312,21 +314,107 @@ public class SourceIncrementalJavaCompilationIntegrationTest extends AbstractInt
         outputs.recompiledClasses("B", "A")
     }
 
-    def "detects changes to source in extra source directories"() {
-        buildFile << "sourceSets.main.java.srcDir 'java'"
+    def "recompilation considers changes from dependent sourceSet"() {
+        buildFile << """
+sourceSets {
+    other {}
+    main { compileClasspath += sourceSets.other.output }
+}
+"""
 
-        java("class A extends B {}")
-        file("java/B.java") << "class B {}"
-        file("java/C.java") << "class C {}"
+        java("class Main extends com.foo.Other {}")
+        file("src/other/java/com/foo/Other.java") << "package com.foo; public class Other {}"
 
         outputs.snapshot { run "compileJava" }
 
         when:
-        file("java/B.java").text = "class B { String change; }"
+        file("src/other/java/com/foo/Other.java").text = "package com.foo; public class Other { String change; }"
+        run "compileJava"
+
+        then:
+        outputs.recompiledClasses("Other", "Main")
+    }
+
+    def "detects changes to source in extra source directories"() {
+        buildFile << "sourceSets.main.java.srcDir 'extra-java'"
+
+        java("class A extends B {}")
+        file("extra-java/B.java") << "class B {}"
+        file("extra-java/C.java") << "class C {}"
+
+        outputs.snapshot { run "compileJava" }
+
+        when:
+        file("extra-java/B.java").text = "class B { String change; }"
         run "compileJava"
 
         then:
         outputs.recompiledClasses("B", "A")
+    }
+
+    def "recompiles classes from extra source directory provided as #type"() {
+        given:
+        buildFile << "compileJava.source $method('extra-java')"
+
+        java("class B {}")
+        file("extra-java/A.java") << "class A extends B {}"
+        file("extra-java/C.java") << "class C {}"
+
+        outputs.snapshot { run "compileJava" }
+
+        when:
+        java("class B { String change; } ")
+        run "compileJava"
+
+        then:
+        outputs.recompiledClasses("B", "A")
+
+        where:
+        type            | method
+        "File"          | "file"
+        "DirectoryTree" | "fileTree"
+    }
+
+    def "detects changes to source in extra source directory provided as #type"() {
+        buildFile << "compileJava.source $method('extra-java')"
+
+        java("class A extends B {}")
+        file("extra-java/B.java") << "class B {}"
+        file("extra-java/C.java") << "class C {}"
+
+        outputs.snapshot { run "compileJava" }
+
+        when:
+        file("extra-java/B.java").text = "class B { String change; }"
+        run "compileJava"
+
+        then:
+        outputs.recompiledClasses("B", "A")
+
+        where:
+        type            | method
+        "File"          | "file"
+        "DirectoryTree" | "fileTree"
+    }
+
+    def "reports source type that does not support detection of source root"() {
+        buildFile << "compileJava.source([file('extra-java'), file('other')])"
+
+        java("class A extends B {}")
+        file("extra-java/B.java") << "class B {}"
+        file("extra-java/C.java") << "class C {}"
+
+        outputs.snapshot { run "compileJava" }
+
+        when:
+        file("extra-java/B.java").text = "class B { String change; }"
+        executer.withArgument "--info"
+        run "compileJava"
+
+        then:
+        outputs.recompiledClasses("A", "B", "C")
+        output.contains("Cannot infer source root(s) for input with type `ArrayList`. Supported types are `File`, `DirectoryTree` and `SourceDirectorySet`.")
+        output.contains(":compileJava - is not incremental. Unable to infer the source directories.")
     }
 
     def "handles duplicate class across source directories"() {
@@ -338,5 +426,30 @@ public class SourceIncrementalJavaCompilationIntegrationTest extends AbstractInt
 
         when: fails "compileJava"
         then: failure.assertHasCause("Compilation failed")
+    }
+
+    @Issue("GRADLE-3426")
+    @NotYetImplemented
+    def "supports Java 1.2 dependencies"() {
+        java "class A {}"
+
+        buildFile << """
+repositories { jcenter() }
+dependencies { compile 'com.ibm.icu:icu4j:2.6.1' }
+"""
+        expect:
+        run "compileJava"
+    }
+
+    @Issue("GRADLE-3495")
+    def "supports Java 1.1 dependencies"() {
+        java "class A {}"
+
+        buildFile << """
+repositories { jcenter() }
+dependencies { compile 'net.sf.ehcache:ehcache:2.10.2' }
+"""
+        expect:
+        run "compileJava"
     }
 }
